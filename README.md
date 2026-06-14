@@ -27,10 +27,13 @@ Default login: `admin@qauto.com` / `admin123` (PIN `1234`).
 
 | Service | Host | Config |
 |---------|------|--------|
-| Web | [Vercel](https://vercel.com) | `apps/web/vercel.json` |
-| API | [Railway](https://railway.app) | `railway.toml` |
+| Web | [Vercel](https://vercel.com) (recommended) | Root dir `apps/web`, see `apps/web/vercel.json` |
+| Web (alt) | Railway | Config file `apps/web/railway.toml` — **not** root `railway.toml` |
+| API | [Railway](https://railway.app) | Config file `apps/api/railway.toml` |
 | Postgres | Supabase | `deploy/railway.api.env.example` |
 | Redis | Upstash | same |
+
+**Railway monorepo:** each service must set its own **Config file path** in Settings. There is no root `railway.toml` — using the wrong path builds the wrong Dockerfile.
 
 See `deploy/vercel.env.example` and `deploy/railway.api.env.example` for environment variables.
 

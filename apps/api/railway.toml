@@ -1,5 +1,10 @@
 # Railway config for the API service.
-# In Railway → @qauto/api → Settings → Config file path: apps/api/railway.toml
+#
+# Railway → @qauto/api → Settings:
+#   Config file path: apps/api/railway.toml
+#   Clear "Build command" (Dockerfile handles build)
+#
+# Variables: see deploy/railway.api.env.example
 
 [build]
 builder = "DOCKERFILE"

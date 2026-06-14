@@ -1,5 +1,13 @@
 # Railway config for the web service (optional — Vercel is the recommended host).
-# In Railway → @qauto/web → Settings → Config file path: apps/web/railway.toml
+#
+# Railway → @qauto/web → Settings:
+#   Config file path: apps/web/railway.toml
+#   Clear "Build command" and "Start command" (Dockerfile handles both)
+#
+# Required variables (after @qauto/api is live):
+#   NEXT_PUBLIC_API_URL=/api/v1
+#   API_PROXY_TARGET=https://YOUR-API.up.railway.app
+#   NEXT_PUBLIC_WS_URL=https://YOUR-API.up.railway.app/ws
 
 [build]
 builder = "DOCKERFILE"
