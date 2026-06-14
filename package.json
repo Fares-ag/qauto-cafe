@@ -20,6 +20,7 @@
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "vercel-build": "npm run build --workspace=@qauto/shared-types && npm run build --workspace=@qauto/api-client && npm run build --workspace=@qauto/web",
+    "railway-api-build": "npm run db:generate && npm run build --workspace=@qauto/shared-types && npm run build --workspace=@qauto/api",
     "check:deploy:vercel": "node scripts/check-deploy-env.mjs vercel",
     "check:deploy:api": "node scripts/check-deploy-env.mjs api"
   },

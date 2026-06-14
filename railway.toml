@@ -1,0 +1,14 @@
+# Default config for @qauto/api (NestJS Docker deploy).
+# @qauto/web must use apps/web/railway.toml — or deploy web on Vercel instead.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "apps/api/Dockerfile"
+watchPatterns = ["apps/api/**", "packages/shared-types/**", "prisma/**", "scripts/**"]
+
+[deploy]
+startCommand = "sh scripts/docker-api-entrypoint.sh"
+healthcheckPath = "/api/v1/health/live"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+numReplicas = 1

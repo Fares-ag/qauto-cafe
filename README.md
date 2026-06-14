@@ -29,7 +29,7 @@ Default login: `admin@qauto.com` / `admin123` (PIN `1234`).
 |---------|------|--------|
 | Web | [Vercel](https://vercel.com) (recommended) | Root dir `apps/web`, see `apps/web/vercel.json` |
 | Web (alt) | Railway | Config file `apps/web/railway.toml` — **not** root `railway.toml` |
-| API | [Railway](https://railway.app) | Config file `apps/api/railway.toml` |
+| API | [Railway](https://railway.app) | Root `railway.toml` or `apps/api/railway.toml` — must use **Dockerfile** builder |
 | Postgres | Supabase | `deploy/railway.api.env.example` |
 | Redis | Upstash | same |
 
