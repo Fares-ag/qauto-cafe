@@ -7,10 +7,17 @@ import type {
   PayOrderResponse,
   QueueOrder,
   OrderStatus,
+  OrderType,
   Shift,
+  ShiftSummary,
   DailySalesReport,
+  DashboardAnalytics,
+  ArAgingReport,
+  LoyaltySummaryReport,
   ProductSalesReportRow,
   IngredientUsageReportRow,
+  UnpaidOrdersReport,
+  StockMovementRow,
 } from '@qauto/shared-types';
 
 export interface InventoryStockItem {
@@ -20,10 +27,18 @@ export interface InventoryStockItem {
   isPackaging: boolean;
   available: string;
   uom: string;
+  uomId?: string;
+  purchaseUom?: string | null;
+  purchaseUomId?: string | null;
+  reorderPoint?: string | null;
+  parLevel?: string | null;
+  valueOnHandQar?: string;
+  isLow?: boolean;
 }
 
 export interface InventoryStockResponse {
   branchId: string;
+  totalValueQar?: string;
   items: InventoryStockItem[];
 }
 
@@ -38,6 +53,8 @@ export interface ApiClientOptions {
   baseUrl: string;
   getAccessToken?: () => string | null;
   getBranchId?: () => string | null;
+  /** Called on 401 (except /auth/*). Return true to retry the request once. */
+  onUnauthorized?: () => Promise<boolean>;
 }
 
 export class ApiClient {
@@ -57,7 +74,11 @@ export class ApiClient {
     });
   }
 
-  async getBootstrap(): Promise<{ organization: { id: string; name: string; slug: string } | null; branch: { id: string; name: string; code: string } | null }> {
+  async getBootstrap(): Promise<{
+    organization: { id: string; name: string; slug: string } | null;
+    branch: { id: string; name: string; code: string } | null;
+    terminals: Array<{ id: string; name: string; type: string }>;
+  }> {
     return this.request('/public/bootstrap');
   }
 
@@ -81,6 +102,7 @@ export class ApiClient {
     branchId: string;
     terminalId?: string;
     shiftId?: string;
+    orderType?: OrderType;
     lines?: CartLineInput[];
   }): Promise<Order> {
     return this.request<Order>('/orders', {
@@ -96,18 +118,78 @@ export class ApiClient {
     });
   }
 
+  async applyOrderDiscount(
+    orderId: string,
+    body: {
+      scope: 'ORDER' | 'LINE';
+      type: 'PERCENTAGE' | 'FIXED_AMOUNT';
+      value: string;
+      orderLineId?: string;
+      reason?: string;
+    },
+  ): Promise<Order> {
+    return this.request<Order>(`/orders/${orderId}/discounts`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async clearOrderDiscount(orderId: string): Promise<Order> {
+    return this.request<Order>(`/orders/${orderId}/discounts`, {
+      method: 'DELETE',
+    });
+  }
+
+  async listOrderDiscounts(orderId: string) {
+    return this.request(`/orders/${orderId}/discounts`);
+  }
+
+  async removeOrderDiscount(orderId: string, discountId: string) {
+    return this.request(`/orders/${orderId}/discounts/${discountId}`, { method: 'DELETE' });
+  }
+
   async getOrder(orderId: string): Promise<Order> {
     return this.request<Order>(`/orders/${orderId}`);
   }
 
   async payOrder(
     orderId: string,
-    body: { payments: Array<{ method: 'CASH' | 'CARD' | 'CORPORATE' | 'OTHER'; amount: string; reference?: string }>; idempotencyKey?: string },
+    body: {
+      payments: Array<{ method: 'CASH' | 'CARD' | 'CORPORATE' | 'OTHER'; amount: string; reference?: string }>;
+      idempotencyKey?: string;
+      loyaltyPointsRedeem?: number;
+      rewardId?: string;
+      giftCardCode?: string;
+    },
   ): Promise<PayOrderResponse> {
     return this.request<PayOrderResponse>(`/orders/${orderId}/pay`, {
       method: 'POST',
       body: JSON.stringify(body),
     });
+  }
+
+  async deferOrder(orderId: string) {
+    return this.request<{ order: { id: string; orderNumber: number; status: string; total: string; cogsTotal: string; deferredAt?: string; customerName?: string | null; customerDepartment?: string | null } }>(
+      `/orders/${orderId}/defer`,
+      { method: 'POST' },
+    );
+  }
+
+  async updateOrderCustomer(
+    orderId: string,
+    body: { customerName?: string; customerDepartment?: string; customerId?: string; paymentDueDate?: string },
+  ) {
+    return this.request(`/orders/${orderId}/customer`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async collectPayment(
+    orderId: string,
+    body: { payments: Array<{ method: 'CASH' | 'CARD' | 'CORPORATE' | 'OTHER'; amount: string; reference?: string }>; idempotencyKey?: string },
+  ): Promise<PayOrderResponse> {
+    return this.payOrder(orderId, body);
   }
 
   async voidOrder(orderId: string, reason: string) {
@@ -117,7 +199,10 @@ export class ApiClient {
     });
   }
 
-  async refundOrder(orderId: string, body: { reason: string; restockInventory?: boolean; idempotencyKey?: string }) {
+  async refundOrder(
+    orderId: string,
+    body: { reason: string; restockInventory?: boolean; idempotencyKey?: string; lineIds?: string[] },
+  ) {
     return this.request(`/orders/${orderId}/refund`, {
       method: 'POST',
       body: JSON.stringify(body),
@@ -136,6 +221,10 @@ export class ApiClient {
         status: string;
         total: string;
         lineCount: number;
+        customerName: string | null;
+        customerDepartment: string | null;
+        deferredAt: string | null;
+        paymentDueDate: string | null;
         createdByName: string;
         paidAt: string | null;
         createdAt: string;
@@ -175,6 +264,12 @@ export class ApiClient {
     return this.request<Shift | null>(`/shifts/current?${params}`);
   }
 
+  async listShifts(branchId: string, limit = 20) {
+    return this.request<Shift[]>(
+      `/shifts?branchId=${encodeURIComponent(branchId)}&limit=${limit}`,
+    );
+  }
+
   async closeShift(shiftId: string, body: { actualCash: string; notes?: string }) {
     return this.request<Shift>(`/shifts/${shiftId}/close`, {
       method: 'POST',
@@ -183,7 +278,7 @@ export class ApiClient {
   }
 
   async getShiftSummary(shiftId: string) {
-    return this.request(`/shifts/${shiftId}/summary`);
+    return this.request<ShiftSummary>(`/shifts/${shiftId}/summary`);
   }
 
   async getMenuAdminItems(branchId: string) {
@@ -228,7 +323,25 @@ export class ApiClient {
   }
 
   async getIngredients() {
-    return this.request<Array<{ id: string; name: string; code: string; uom: string }>>('/inventory/ingredients');
+    return this.request<
+      Array<{
+        id: string;
+        name: string;
+        code: string;
+        uom: string;
+        uomId: string;
+        purchaseUom?: string | null;
+        purchaseUomId?: string | null;
+        reorderPoint?: string | null;
+        trackStock?: boolean;
+      }>
+    >('/inventory/ingredients');
+  }
+
+  async listUoms() {
+    return this.request<Array<{ id: string; code: string; name: string; symbol: string }>>(
+      '/inventory/uoms',
+    );
   }
 
   async receiveStock(body: {
@@ -236,6 +349,7 @@ export class ApiClient {
     ingredientId: string;
     quantity: string;
     unitCost: string;
+    inputUomId?: string;
     notes?: string;
   }) {
     return this.request('/inventory/receive', { method: 'POST', body: JSON.stringify(body) });
@@ -246,12 +360,15 @@ export class ApiClient {
     ingredientId: string;
     quantity: string;
     reason: string;
+    inputUomId?: string;
   }) {
     return this.request('/inventory/waste', { method: 'POST', body: JSON.stringify(body) });
   }
 
   async getStockMovements(branchId: string, limit = 30) {
-    return this.request(`/inventory/movements?branchId=${encodeURIComponent(branchId)}&limit=${limit}`);
+    return this.request<StockMovementRow[]>(
+      `/inventory/movements?branchId=${encodeURIComponent(branchId)}&limit=${limit}`,
+    );
   }
 
   async getAuditLog(params: { branchId?: string; limit?: number; offset?: number }) {
@@ -327,6 +444,146 @@ export class ApiClient {
     return this.request<IngredientUsageReportRow[]>(`/reports/ingredient-usage?${params}`);
   }
 
+  async getUnpaidOrdersReport(branchId: string) {
+    return this.request<UnpaidOrdersReport>(
+      `/reports/unpaid-orders?branchId=${encodeURIComponent(branchId)}`,
+    );
+  }
+
+  async getDashboardAnalytics(branchId: string, businessDate: string, trendDays = 7) {
+    const params = new URLSearchParams({ branchId, businessDate, trendDays: String(trendDays) });
+    return this.request<DashboardAnalytics>(`/reports/dashboard?${params}`);
+  }
+
+  async getArAgingReport(branchId: string) {
+    return this.request<ArAgingReport>(
+      `/reports/ar-aging?branchId=${encodeURIComponent(branchId)}`,
+    );
+  }
+
+  async getLoyaltySummary(branchId: string) {
+    return this.request<LoyaltySummaryReport>(
+      `/reports/loyalty-summary?branchId=${encodeURIComponent(branchId)}`,
+    );
+  }
+
+  async searchCustomers(query: string) {
+    return this.request<
+      Array<{
+        id: string;
+        name: string;
+        department: string | null;
+        email: string | null;
+        phone: string | null;
+        pointsBalance: number;
+      }>
+    >(`/customers?q=${encodeURIComponent(query)}`);
+  }
+
+  async getLoyaltyRewards() {
+    return this.request<Array<{ id: string; name: string; pointsCost: number }>>('/loyalty/rewards');
+  }
+
+  async getLoyaltyAccount(customerId: string) {
+    return this.request<{ customerId: string; pointsBalance: number; lifetimePoints: number }>(
+      `/loyalty/accounts/${customerId}`,
+    );
+  }
+
+  async issueGiftCard(body: { amount: string; customerId?: string; expiresAt?: string }) {
+    return this.request<{ id: string; code: string; balance: string }>('/gift-cards', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async getGiftCardBalance(code: string) {
+    return this.request<{ code: string; balance: string; status: string }>(
+      `/gift-cards/${encodeURIComponent(code)}/balance`,
+    );
+  }
+
+  async getWasteAnalytics(branchId: string, businessDate: string) {
+    const params = new URLSearchParams({ branchId, businessDate });
+    return this.request<{
+      branchId: string;
+      businessDate: string;
+      totalRecords: number;
+      totalValue: string;
+      byIngredient: Array<{
+        ingredientId: string;
+        ingredientName: string;
+        quantityWasted: string;
+        valueWasted: string;
+        eventCount: number;
+      }>;
+      recent: Array<{
+        id: string;
+        ingredientName: string;
+        quantity: string;
+        reason: string;
+        createdAt: string;
+      }>;
+    }>(`/reports/waste?${params}`);
+  }
+
+  async transferInventory(body: {
+    fromBranchId: string;
+    toBranchId: string;
+    ingredientId: string;
+    quantity: string;
+    inputUomId?: string;
+    notes?: string;
+  }) {
+    return this.request('/inventory/transfer', { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  async getLowStock(branchId: string) {
+    return this.request<{
+      branchId: string;
+      items: Array<{
+        ingredientId: string;
+        name: string;
+        code: string;
+        available: string;
+        reorderPoint: string;
+        uom: string;
+      }>;
+    }>(`/inventory/low-stock?branchId=${encodeURIComponent(branchId)}`);
+  }
+
+  async updatePurchaseOrder(
+    poId: string,
+    body: {
+      notes?: string;
+      lines?: Array<{ ingredientId: string; quantityOrdered: string; unitCost: string }>;
+    },
+  ) {
+    return this.request(`/purchase-orders/${poId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async createRecipe(body: {
+    menuItemId: string;
+    sizeId?: string;
+    notes?: string;
+    lines: Array<{ ingredientId: string; quantity: string; isOptional?: boolean }>;
+  }) {
+    return this.request('/recipes/admin', { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  async updateRecipeLines(
+    recipeId: string,
+    lines: Array<{ ingredientId: string; quantity: string; isOptional?: boolean }>,
+  ) {
+    return this.request(`/recipes/${recipeId}/lines`, {
+      method: 'PATCH',
+      body: JSON.stringify({ lines }),
+    });
+  }
+
   async getInventoryStock(branchId: string) {
     return this.request<InventoryStockResponse>(
       `/inventory/stock?branchId=${encodeURIComponent(branchId)}`,
@@ -351,7 +608,423 @@ export class ApiClient {
     );
   }
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  async listBranches() {
+    return this.request<Array<{
+      id: string;
+      name: string;
+      code: string;
+      address: string | null;
+      phone: string | null;
+      isActive: boolean;
+      businessDayCutoverHour: number;
+    }>>('/branches');
+  }
+
+  async getBranch(branchId: string) {
+    return this.request(`/branches/${branchId}`);
+  }
+
+  async createBranch(body: {
+    name: string;
+    code: string;
+    address?: string;
+    phone?: string;
+    businessDayCutoverHour?: number;
+  }) {
+    return this.request('/branches', { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  async updateBranch(
+    branchId: string,
+    body: {
+      name?: string;
+      address?: string;
+      phone?: string;
+      businessDayCutoverHour?: number;
+      isActive?: boolean;
+    },
+  ) {
+    return this.request(`/branches/${branchId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteBranch(branchId: string) {
+    return this.request(`/branches/${branchId}`, { method: 'DELETE' });
+  }
+
+  async getBranchSettings(branchId: string) {
+    return this.request<{ branchId: string; settings: Record<string, unknown> }>(
+      `/branches/${branchId}/settings`,
+    );
+  }
+
+  async upsertBranchSettings(branchId: string, body: { settings: Record<string, unknown> }) {
+    return this.request(`/branches/${branchId}/settings`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async listCustomers() {
+    return this.request<Array<{
+      id: string;
+      name: string;
+      email: string | null;
+      employeeId: string | null;
+      department: string | null;
+      isActive: boolean;
+    }>>('/customers');
+  }
+
+  async getCustomer(customerId: string) {
+    return this.request(`/customers/${customerId}`);
+  }
+
+  async createCustomer(body: {
+    name: string;
+    department?: string;
+    employeeId?: string;
+    email?: string;
+    phone?: string;
+    notes?: string;
+  }) {
+    return this.request('/customers', { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  async updateCustomer(
+    customerId: string,
+    body: {
+      name?: string;
+      department?: string;
+      employeeId?: string;
+      email?: string;
+      phone?: string;
+      notes?: string;
+      isActive?: boolean;
+    },
+  ) {
+    return this.request(`/customers/${customerId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteCustomer(customerId: string) {
+    return this.request(`/customers/${customerId}`, { method: 'DELETE' });
+  }
+
+  async listUsers() {
+    return this.request<Array<{
+      id: string;
+      firstName: string;
+      lastName: string;
+      email: string | null;
+      status: string;
+      role: { id: string; slug: string; name: string };
+      branches: Array<{ branch: { id: string; name: string; code: string } }>;
+    }>>('/users');
+  }
+
+  async getUser(userId: string) {
+    return this.request(`/users/${userId}`);
+  }
+
+  async createUser(body: {
+    firstName: string;
+    lastName: string;
+    email?: string;
+    password?: string;
+    pin: string;
+    employeeNumber?: string;
+    branchIds: string[];
+  }) {
+    return this.request('/users', { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  async updateUser(
+    userId: string,
+    body: {
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+      employeeNumber?: string;
+      phone?: string;
+      status?: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
+    },
+  ) {
+    return this.request(`/users/${userId}`, { method: 'PATCH', body: JSON.stringify(body) });
+  }
+
+  async assignUserRole(userId: string, body: { roleId: string }) {
+    return this.request(`/users/${userId}/role`, { method: 'PATCH', body: JSON.stringify(body) });
+  }
+
+  async setUserBranches(userId: string, body: { branchIds: string[]; defaultBranchId?: string }) {
+    return this.request(`/users/${userId}/branches`, { method: 'PUT', body: JSON.stringify(body) });
+  }
+
+  async resetUserPin(userId: string, body: { pin: string }) {
+    return this.request(`/users/${userId}/reset-pin`, { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  async listIngredientCategories() {
+    return this.request<Array<{ id: string; name: string; sortOrder: number; ingredientCount: number }>>(
+      '/admin/ingredients/categories',
+    );
+  }
+
+  async createIngredientCategory(body: { name: string; sortOrder?: number }) {
+    return this.request('/admin/ingredients/categories', { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  async updateIngredientCategory(categoryId: string, body: { name?: string; sortOrder?: number }) {
+    return this.request(`/admin/ingredients/categories/${categoryId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteIngredientCategory(categoryId: string) {
+    return this.request(`/admin/ingredients/categories/${categoryId}`, { method: 'DELETE' });
+  }
+
+  async listIngredientsAdmin() {
+    return this.request<Array<{
+      id: string;
+      name: string;
+      code: string;
+      uom: string;
+      reorderPoint: string | null;
+      parLevel: string | null;
+      isActive: boolean;
+      trackStock: boolean;
+      isPackaging: boolean;
+      categoryName?: string | null;
+      isSnackSku?: boolean;
+    }>>('/admin/ingredients');
+  }
+
+  async createIngredient(body: {
+    name: string;
+    code: string;
+    baseUomId?: string;
+    baseUomCode?: string;
+    categoryId?: string;
+    reorderPoint?: string;
+    parLevel?: string;
+    trackStock?: boolean;
+    isPackaging?: boolean;
+  }) {
+    return this.request('/admin/ingredients', { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  async updateIngredient(
+    ingredientId: string,
+    body: {
+      name?: string;
+      categoryId?: string | null;
+      reorderPoint?: string | null;
+      parLevel?: string | null;
+      isActive?: boolean;
+    },
+  ) {
+    return this.request(`/admin/ingredients/${ingredientId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteIngredient(ingredientId: string) {
+    return this.request(`/admin/ingredients/${ingredientId}`, { method: 'DELETE' });
+  }
+
+  async listMenuCategories() {
+    return this.request<Array<{
+      id: string;
+      name: string;
+      sortOrder: number;
+      itemCount: number;
+      isActive: boolean;
+    }>>('/menu/admin/categories');
+  }
+
+  async createMenuCategory(body: { name: string; sortOrder?: number }) {
+    return this.request('/menu/admin/categories', { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  async updateMenuCategory(
+    categoryId: string,
+    body: { name?: string; sortOrder?: number; isActive?: boolean },
+  ) {
+    return this.request(`/menu/admin/categories/${categoryId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteMenuCategory(categoryId: string) {
+    return this.request(`/menu/admin/categories/${categoryId}`, { method: 'DELETE' });
+  }
+
+  async createMenuItem(body: {
+    categoryId: string;
+    name: string;
+    code: string;
+    type: 'DRINK' | 'SNACK';
+    basePrice: string;
+    description?: string;
+    imageUrl?: string;
+  }) {
+    return this.request('/menu/admin/items', { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  async updateMenuItem(
+    menuItemId: string,
+    body: {
+      name?: string;
+      basePrice?: string;
+      categoryId?: string;
+      description?: string;
+      isActive?: boolean;
+    },
+  ) {
+    return this.request(`/menu/admin/items/${menuItemId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteMenuItem(menuItemId: string) {
+    return this.request(`/menu/admin/items/${menuItemId}`, { method: 'DELETE' });
+  }
+
+  async setMenuItemPriceOverride(
+    menuItemId: string,
+    body: { branchId: string; priceOverride?: string | null },
+  ) {
+    return this.request(`/menu/admin/items/${menuItemId}/price-override`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async listMenuItemSizes(menuItemId: string) {
+    return this.request(`/menu/admin/items/${menuItemId}/sizes`);
+  }
+
+  async createMenuItemSize(
+    menuItemId: string,
+    body: { name: string; code: string; priceAdjustment?: string; isDefault?: boolean },
+  ) {
+    return this.request(`/menu/admin/items/${menuItemId}/sizes`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async updateMenuItemSize(
+    menuItemId: string,
+    sizeId: string,
+    body: { name?: string; priceAdjustment?: string; isDefault?: boolean; isActive?: boolean },
+  ) {
+    return this.request(`/menu/admin/items/${menuItemId}/sizes/${sizeId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteMenuItemSize(menuItemId: string, sizeId: string) {
+    return this.request(`/menu/admin/items/${menuItemId}/sizes/${sizeId}`, { method: 'DELETE' });
+  }
+
+  async listModifierGroups() {
+    return this.request<Array<{
+      id: string;
+      name: string;
+      minSelections: number;
+      maxSelections: number;
+      isRequired: boolean;
+      modifierCount: number;
+    }>>('/menu/admin/modifier-groups');
+  }
+
+  async createModifierGroup(body: {
+    name: string;
+    minSelections?: number;
+    maxSelections?: number;
+    isRequired?: boolean;
+  }) {
+    return this.request('/menu/admin/modifier-groups', { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  async updateModifierGroup(
+    groupId: string,
+    body: { name?: string; minSelections?: number; maxSelections?: number; isRequired?: boolean },
+  ) {
+    return this.request(`/menu/admin/modifier-groups/${groupId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteModifierGroup(groupId: string) {
+    return this.request(`/menu/admin/modifier-groups/${groupId}`, { method: 'DELETE' });
+  }
+
+  async listModifiers(groupId: string) {
+    return this.request<Array<{
+      id: string;
+      modifierGroupId: string;
+      name: string;
+      code: string;
+      priceAdjustment: string;
+      isActive: boolean;
+      sortOrder: number;
+    }>>(`/menu/admin/modifier-groups/${groupId}/modifiers`);
+  }
+
+  async createModifier(groupId: string, body: { name: string; code: string; priceAdjustment?: string }) {
+    return this.request(`/menu/admin/modifier-groups/${groupId}/modifiers`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async updateModifier(
+    groupId: string,
+    modifierId: string,
+    body: { name?: string; priceAdjustment?: string; isActive?: boolean },
+  ) {
+    return this.request(`/menu/admin/modifier-groups/${groupId}/modifiers/${modifierId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteModifier(groupId: string, modifierId: string) {
+    return this.request(`/menu/admin/modifier-groups/${groupId}/modifiers/${modifierId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async linkMenuItemModifierGroup(menuItemId: string, body: { modifierGroupId: string; sortOrder?: number }) {
+    return this.request(`/menu/admin/items/${menuItemId}/modifier-groups`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async unlinkMenuItemModifierGroup(menuItemId: string, groupId: string) {
+    return this.request(`/menu/admin/items/${menuItemId}/modifier-groups/${groupId}`, { method: 'DELETE' });
+  }
+
+  /** Aliases used by menu builder UI */
+  getMenuAdminCategories = () => this.listMenuCategories();
+  getModifierGroups = () => this.listModifierGroups();
+
+  private async request<T>(path: string, init: RequestInit = {}, retried = false): Promise<T> {
     const headers = new Headers(init.headers);
     headers.set('Content-Type', 'application/json');
 
@@ -372,6 +1045,19 @@ export class ApiClient {
     });
 
     const data = await response.json().catch(() => ({}));
+
+    if (
+      !response.ok &&
+      response.status === 401 &&
+      !retried &&
+      this.options.onUnauthorized &&
+      !path.startsWith('/auth/')
+    ) {
+      const refreshed = await this.options.onUnauthorized();
+      if (refreshed) {
+        return this.request<T>(path, init, true);
+      }
+    }
 
     if (!response.ok) {
       throw new ApiError({

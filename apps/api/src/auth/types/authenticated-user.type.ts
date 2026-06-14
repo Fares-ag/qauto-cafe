@@ -9,7 +9,9 @@ export interface JwtPayload {
 export interface AuthenticatedUser {
   id: string;
   organizationId: string;
+  roleId: string;
   role: string;
+  permissions: string[];
   firstName: string;
   lastName: string;
   terminalId?: string;

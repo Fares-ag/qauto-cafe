@@ -113,4 +113,120 @@ export class RecipeAdminService {
 
     return { id: updated.id, status: updated.status, approvedAt: updated.approvedAt?.toISOString() };
   }
+
+  async createRecipe(
+    organizationId: string,
+    userId: string,
+    dto: {
+      menuItemId: string;
+      sizeId?: string;
+      notes?: string;
+      lines: Array<{ ingredientId: string; quantity: string; uomId?: string; isOptional?: boolean }>;
+    },
+  ) {
+    const menuItem = await this.prisma.menuItem.findFirst({
+      where: { id: dto.menuItemId, organizationId, deletedAt: null },
+    });
+    if (!menuItem) throw new NotFoundException('Menu item not found');
+    if (!dto.lines.length) throw new BadRequestException('Recipe must have at least one line');
+
+    const latest = await this.prisma.recipe.findFirst({
+      where: { menuItemId: dto.menuItemId, sizeId: dto.sizeId ?? null, deletedAt: null },
+      orderBy: { version: 'desc' },
+    });
+
+    const recipe = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.recipe.create({
+        data: {
+          menuItemId: dto.menuItemId,
+          sizeId: dto.sizeId,
+          version: (latest?.version ?? 0) + 1,
+          status: 'DRAFT',
+          notes: dto.notes,
+        },
+      });
+
+      for (const [index, line] of dto.lines.entries()) {
+        const ingredient = await tx.ingredient.findFirst({
+          where: { id: line.ingredientId, organizationId },
+        });
+        if (!ingredient) throw new NotFoundException(`Ingredient not found: ${line.ingredientId}`);
+
+        await tx.recipeLine.create({
+          data: {
+            recipeId: created.id,
+            ingredientId: line.ingredientId,
+            quantity: line.quantity,
+            uomId: line.uomId ?? ingredient.baseUomId,
+            isOptional: line.isOptional ?? false,
+            sortOrder: index,
+          },
+        });
+      }
+
+      return created;
+    });
+
+    await this.audit.log({
+      organizationId,
+      userId,
+      action: 'CREATE',
+      entityType: 'recipe',
+      entityId: recipe.id,
+      afterState: { menuItemId: dto.menuItemId, version: recipe.version },
+    });
+
+    return { id: recipe.id, version: recipe.version, status: recipe.status };
+  }
+
+  async updateRecipeLines(
+    organizationId: string,
+    userId: string,
+    recipeId: string,
+    lines: Array<{ ingredientId: string; quantity: string; uomId?: string; isOptional?: boolean }>,
+  ) {
+    const recipe = await this.prisma.recipe.findFirst({
+      where: { id: recipeId, deletedAt: null },
+      include: { menuItem: true },
+    });
+    if (!recipe || recipe.menuItem.organizationId !== organizationId) {
+      throw new NotFoundException('Recipe not found');
+    }
+    if (recipe.status !== 'DRAFT') {
+      throw new BadRequestException('Only draft recipes can be edited');
+    }
+    if (!lines.length) throw new BadRequestException('Recipe must have at least one line');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.recipeLine.deleteMany({ where: { recipeId } });
+      for (const [index, line] of lines.entries()) {
+        const ingredient = await tx.ingredient.findFirst({
+          where: { id: line.ingredientId, organizationId },
+        });
+        if (!ingredient) throw new NotFoundException(`Ingredient not found: ${line.ingredientId}`);
+
+        await tx.recipeLine.create({
+          data: {
+            recipeId,
+            ingredientId: line.ingredientId,
+            quantity: line.quantity,
+            uomId: line.uomId ?? ingredient.baseUomId,
+            isOptional: line.isOptional ?? false,
+            sortOrder: index,
+          },
+        });
+      }
+    });
+
+    await this.audit.log({
+      organizationId,
+      userId,
+      action: 'UPDATE',
+      entityType: 'recipe',
+      entityId: recipeId,
+      afterState: { lineCount: lines.length },
+    });
+
+    return { id: recipeId, lineCount: lines.length };
+  }
 }

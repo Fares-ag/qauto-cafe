@@ -97,6 +97,55 @@ export class PurchaseOrdersService {
     return this.findOne(organizationId, po.id);
   }
 
+  async update(
+    organizationId: string,
+    userId: string,
+    poId: string,
+    dto: { notes?: string; lines?: Array<{ ingredientId: string; quantityOrdered: string; unitCost: string }> },
+  ) {
+    const po = await this.getPo(organizationId, poId);
+    if (po.status !== 'DRAFT') throw new BadRequestException('Only draft POs can be edited');
+
+    await this.prisma.$transaction(async (tx) => {
+      if (dto.notes !== undefined) {
+        await tx.purchaseOrder.update({ where: { id: poId }, data: { notes: dto.notes } });
+      }
+
+      if (dto.lines) {
+        if (!dto.lines.length) throw new BadRequestException('PO must have at least one line');
+        await tx.purchaseOrderLine.deleteMany({ where: { purchaseOrderId: poId } });
+
+        for (const line of dto.lines) {
+          const ingredient = await tx.ingredient.findFirst({
+            where: { id: line.ingredientId, organizationId },
+          });
+          if (!ingredient) throw new NotFoundException(`Ingredient not found: ${line.ingredientId}`);
+
+          await tx.purchaseOrderLine.create({
+            data: {
+              purchaseOrderId: poId,
+              ingredientId: line.ingredientId,
+              quantityOrdered: line.quantityOrdered,
+              uomId: ingredient.baseUomId,
+              unitCost: line.unitCost,
+            },
+          });
+        }
+      }
+    });
+
+    await this.audit.log({
+      organizationId,
+      branchId: po.branchId,
+      userId,
+      action: 'UPDATE',
+      entityType: 'purchase_order',
+      entityId: poId,
+    });
+
+    return this.findOne(organizationId, poId);
+  }
+
   async send(organizationId: string, userId: string, poId: string) {
     const po = await this.getPo(organizationId, poId);
     if (po.status !== 'DRAFT') throw new BadRequestException('Only draft POs can be sent');

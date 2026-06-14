@@ -2,13 +2,20 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import { Job, Queue, Worker } from 'bullmq';
 import { RedisService } from '../redis/redis.service';
-import { ReportAggregationService } from './report-aggregation.service';
+import { PrismaService } from '../prisma/prisma.service';
+import {
+  AggregationAction,
+  AggregationOptions,
+  ReportAggregationService,
+} from './report-aggregation.service';
 
 export const AGGREGATION_QUEUE = 'report-aggregation';
 
 export interface AggregationJobData {
   orderId: string;
-  action: 'order_paid' | 'order_voided';
+  action: AggregationAction;
+  refundId?: string;
+  lineIds?: string[];
 }
 
 @Injectable()
@@ -21,14 +28,19 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     private readonly config: ConfigService,
     private readonly redis: RedisService,
     private readonly aggregation: ReportAggregationService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async onModuleInit() {
+    void this.scheduleAuditRetention();
+
     const connected = await this.redis.connect();
     if (!connected) {
       this.logger.warn('BullMQ disabled — Redis not available');
       return;
     }
+
+    const workerEnabled = this.config.get<boolean>('workerEnabled', true);
 
     const connection = {
       url: this.config.get<string>('redisUrl'),
@@ -37,10 +49,19 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 
     this.queue = new Queue<AggregationJobData>(AGGREGATION_QUEUE, { connection });
 
+    void this.scheduleAuditRetention();
+
+    if (!workerEnabled) {
+      this.logger.log('BullMQ worker disabled — queue-only mode (WORKER_ENABLED=false)');
+      return;
+    }
+
     this.worker = new Worker<AggregationJobData>(
       AGGREGATION_QUEUE,
       async (job: Job<AggregationJobData>) => {
-        await this.aggregation.aggregateOrder(job.data.orderId, job.data.action);
+        const { orderId, action, refundId, lineIds } = job.data;
+        const options: AggregationOptions = { refundId, lineIds };
+        await this.aggregation.aggregateOrder(orderId, action, options);
       },
       { connection },
     );
@@ -52,15 +73,38 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     this.logger.log('BullMQ aggregation worker started');
   }
 
-  async enqueueOrderAggregation(orderId: string, action: AggregationJobData['action']) {
+  private async scheduleAuditRetention() {
+    const retentionDays = this.config.get<number>('auditRetentionDays', 365);
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - retentionDays);
+
+    try {
+      const result = await this.prisma.auditLog.deleteMany({
+        where: { createdAt: { lt: cutoff } },
+      });
+      if (result.count > 0) {
+        this.logger.log(`Purged ${result.count} audit log entries older than ${retentionDays} days`);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Audit retention job failed: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+  }
+
+  async enqueueOrderAggregation(
+    orderId: string,
+    action: AggregationAction,
+    options: AggregationOptions = {},
+  ) {
     if (!this.queue) {
-      await this.aggregation.aggregateOrder(orderId, action);
+      await this.aggregation.aggregateOrder(orderId, action, options);
       return;
     }
 
     await this.queue.add(
       action,
-      { orderId, action },
+      { orderId, action, refundId: options.refundId, lineIds: options.lineIds },
       {
         removeOnComplete: 100,
         removeOnFail: 50,

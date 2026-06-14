@@ -1,0 +1,16 @@
+/** @type {import('jest').Config} */
+module.exports = {
+  moduleFileExtensions: ['js', 'json', 'ts'],
+  rootDir: '.',
+  testRegex: '.*\\.spec\\.ts$',
+  transform: {
+    '^.+\\.(t|j)s$': 'ts-jest',
+  },
+  collectCoverageFrom: ['src/**/*.ts'],
+  coverageDirectory: './coverage',
+  testEnvironment: 'node',
+  testTimeout: 120000,
+  moduleNameMapper: {
+    '^@qauto/shared-types$': '<rootDir>/../../packages/shared-types/src/index.ts',
+  },
+};

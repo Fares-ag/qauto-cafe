@@ -1,0 +1,13 @@
+# Railway — NestJS API (Docker). Deploy from repo root; set env vars in Railway dashboard.
+# Web app deploys separately on Vercel (apps/web/vercel.json).
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "apps/api/Dockerfile"
+watchPatterns = ["apps/api/**", "packages/shared-types/**", "prisma/**", "scripts/**"]
+
+[deploy]
+healthcheckPath = "/api/v1/health/live"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+numReplicas = 1

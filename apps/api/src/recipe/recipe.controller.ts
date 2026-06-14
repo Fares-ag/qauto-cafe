@@ -1,9 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 
 import { RecipeEngineService } from './recipe-engine.service';
 
 import { RecipeAdminService } from './recipe-admin.service';
 
+import { PermissionsGuard } from '../common/guards/permissions.guard';
+import { BranchAccessGuard } from '../common/guards/branch-access.guard';
+import { Permissions } from '../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -77,9 +80,7 @@ class SimulateBomDto {
 
 
 @Controller('recipes')
-
-@UseGuards(JwtAuthGuard)
-
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchAccessGuard)
 export class RecipeController {
 
   constructor(
@@ -93,7 +94,7 @@ export class RecipeController {
 
 
   @Post('simulate')
-
+  @Permissions('order.create', 'inventory.manage')
   simulate(@Body() dto: SimulateBomDto) {
 
     return Promise.all(
@@ -125,7 +126,7 @@ export class RecipeController {
 
 
   @Get('preview')
-
+  @Permissions('order.create', 'inventory.manage')
   preview(
 
     @Query('menuItemId') menuItemId: string,
@@ -157,7 +158,7 @@ export class RecipeController {
 
 
   @Get('admin')
-
+  @Permissions('recipe.manage', 'inventory.manage')
   listAdmin(
 
     @CurrentUser() user: AuthenticatedUser,
@@ -172,11 +173,59 @@ export class RecipeController {
 
 
 
-  @Post(':id/approve')
+  @Post('admin')
+  @Permissions('recipe.manage')
+  createRecipe(
 
+    @CurrentUser() user: AuthenticatedUser,
+
+    @Body()
+
+    dto: {
+
+      menuItemId: string;
+
+      sizeId?: string;
+
+      notes?: string;
+
+      lines: Array<{ ingredientId: string; quantity: string; uomId?: string; isOptional?: boolean }>;
+
+    },
+
+  ) {
+
+    return this.recipeAdmin.createRecipe(user.organizationId, user.id, dto);
+
+  }
+
+
+
+  @Post(':id/approve')
+  @Permissions('recipe.manage')
   approve(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
 
     return this.recipeAdmin.approveRecipe(user.organizationId, user.id, id);
+
+  }
+
+
+
+  @Patch(':id/lines')
+  @Permissions('recipe.manage')
+  updateLines(
+
+    @CurrentUser() user: AuthenticatedUser,
+
+    @Param('id') id: string,
+
+    @Body()
+
+    dto: { lines: Array<{ ingredientId: string; quantity: string; uomId?: string; isOptional?: boolean }> },
+
+  ) {
+
+    return this.recipeAdmin.updateRecipeLines(user.organizationId, user.id, id, dto.lines);
 
   }
 

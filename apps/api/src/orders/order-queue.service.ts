@@ -7,6 +7,7 @@ import { DomainEventsService } from '../events/domain-events.service';
 import { QUEUE_STATUSES } from './dto/update-order-status.dto';
 
 const STATUS_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus[]>> = {
+  PENDING_PAYMENT: ['IN_PREP'],
   PAID: ['IN_PREP'],
   IN_PREP: ['READY'],
   READY: ['COMPLETED'],
@@ -34,7 +35,7 @@ export class OrderQueueService {
           include: { modifiers: true },
         },
       },
-      orderBy: [{ paidAt: 'asc' }, { orderNumber: 'asc' }],
+      orderBy: [{ paidAt: 'asc' }, { deferredAt: 'asc' }, { orderNumber: 'asc' }],
     });
 
     return orders.map((order) => this.serializeQueueOrder(order));
@@ -116,7 +117,7 @@ export class OrderQueueService {
       branchId: order.branchId,
       status: order.status as SharedOrderStatus,
       total: decimalToString(order.total),
-      paidAt: order.paidAt?.toISOString() ?? new Date().toISOString(),
+      paidAt: order.paidAt?.toISOString() ?? order.deferredAt?.toISOString() ?? new Date().toISOString(),
       lines: queueOrder.lines,
     };
   }
@@ -147,8 +148,11 @@ export class OrderQueueService {
       orderNumber: order.orderNumber,
       status: order.status as SharedOrderStatus,
       customerName: order.customerName,
+      customerDepartment: order.customerDepartment,
       total: decimalToString(order.total),
       paidAt: order.paidAt?.toISOString() ?? null,
+      deferredAt: order.deferredAt?.toISOString() ?? null,
+      paymentDueDate: order.paymentDueDate?.toISOString().slice(0, 10) ?? null,
       updatedAt: order.updatedAt.toISOString(),
       lines: order.lines.map((line) => ({
         id: line.id,

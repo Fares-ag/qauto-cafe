@@ -74,3 +74,14 @@ export class ReceivePurchaseOrderLineDto {
   @IsNotEmpty()
   quantityReceived!: string;
 }
+
+export class UpdatePurchaseOrderDto {
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => CreatePurchaseOrderLineDto)
+  lines?: CreatePurchaseOrderLineDto[];
+}

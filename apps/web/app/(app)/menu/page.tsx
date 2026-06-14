@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Badge, Button, Card, CardHeader, EmptyState, TableSkeleton, useToast } from '@qauto/ui';
+import Link from 'next/link';
+import { Badge, Button, Card, CardHeader, EmptyState, Input, TableSkeleton, useToast } from '@qauto/ui';
 import { getApiClient } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth-store';
 
@@ -13,19 +14,35 @@ export default function MenuPage() {
   const { toast } = useToast();
   const [items, setItems] = useState<MenuItem[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [ingredients, setIngredients] = useState<
+    Awaited<ReturnType<ReturnType<typeof getApiClient>['getIngredients']>>
+  >([]);
   const [loading, setLoading] = useState(true);
+  const [newRecipe, setNewRecipe] = useState({
+    menuItemId: '',
+    ingredientId: '',
+    quantity: '',
+  });
 
   const load = useCallback(async () => {
     if (!branchId) return;
     setLoading(true);
     try {
       const client = getApiClient();
-      const [itemsData, recipesData] = await Promise.all([
+      const [itemsData, recipesData, ingredientsData] = await Promise.all([
         client.getMenuAdminItems(branchId),
         client.getRecipesAdmin(),
+        client.getIngredients(),
       ]);
       setItems(itemsData);
       setRecipes(recipesData);
+      setIngredients(ingredientsData);
+      if (!newRecipe.menuItemId && itemsData[0]) {
+        setNewRecipe((r) => ({ ...r, menuItemId: itemsData[0].id }));
+      }
+      if (!newRecipe.ingredientId && ingredientsData[0]) {
+        setNewRecipe((r) => ({ ...r, ingredientId: ingredientsData[0].id }));
+      }
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to load menu', 'error');
     } finally {
@@ -63,11 +80,33 @@ export default function MenuPage() {
     }
   }
 
+  async function createRecipe(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newRecipe.menuItemId || !newRecipe.ingredientId || !newRecipe.quantity) return;
+    try {
+      const client = getApiClient();
+      await client.createRecipe({
+        menuItemId: newRecipe.menuItemId,
+        lines: [{ ingredientId: newRecipe.ingredientId, quantity: newRecipe.quantity }],
+      });
+      toast('Draft recipe created', 'success');
+      setNewRecipe((r) => ({ ...r, quantity: '' }));
+      load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Create failed', 'error');
+    }
+  }
+
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">Menu</h1>
-        <p className="mt-1 text-sm text-ink-muted">Manage availability and recipes</p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">Menu</h1>
+          <p className="mt-1 text-sm text-ink-muted">Manage availability and recipes</p>
+        </div>
+        <Link href="/menu/builder">
+          <Button variant="secondary">Open menu builder</Button>
+        </Link>
       </div>
 
       <Card padding="lg">
@@ -114,6 +153,44 @@ export default function MenuPage() {
             </table>
           </div>
         )}
+      </Card>
+
+      <Card padding="lg">
+        <CardHeader title="Recipe / BOM builder" description="Create draft recipes with ingredient lines" />
+        <form onSubmit={createRecipe} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="block text-sm">
+            <span className="mb-1 block text-ink-muted">Menu item</span>
+            <select
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm"
+              value={newRecipe.menuItemId}
+              onChange={(e) => setNewRecipe((r) => ({ ...r, menuItemId: e.target.value }))}
+            >
+              {items.map((i) => (
+                <option key={i.id} value={i.id}>{i.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-ink-muted">Ingredient</span>
+            <select
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm"
+              value={newRecipe.ingredientId}
+              onChange={(e) => setNewRecipe((r) => ({ ...r, ingredientId: e.target.value }))}
+            >
+              {ingredients.map((i) => (
+                <option key={i.id} value={i.id}>{i.name}</option>
+              ))}
+            </select>
+          </label>
+          <Input
+            label="Quantity"
+            value={newRecipe.quantity}
+            onChange={(e) => setNewRecipe((r) => ({ ...r, quantity: e.target.value }))}
+          />
+          <div className="flex items-end">
+            <Button type="submit" variant="primary">Create draft</Button>
+          </div>
+        </form>
       </Card>
 
       <Card padding="lg">

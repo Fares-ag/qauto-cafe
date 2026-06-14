@@ -30,23 +30,26 @@ export default function ReportsPage() {
     Array<{ userName: string; ordersHandled: number; grossSales: string; voidCount: number }>
   >([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'products' | 'ingredients' | 'staff'>('products');
+  const [tab, setTab] = useState<'products' | 'ingredients' | 'staff' | 'waste'>('products');
+  const [waste, setWaste] = useState<Awaited<ReturnType<ReturnType<typeof getApiClient>['getWasteAnalytics']>> | null>(null);
 
   const load = useCallback(async () => {
     if (!branchId) return;
     setLoading(true);
     try {
       const client = getApiClient();
-      const [salesData, productData, ingredientData, employeeData] = await Promise.all([
+      const [salesData, productData, ingredientData, employeeData, wasteData] = await Promise.all([
         client.getDailySalesReport(branchId, businessDate),
         client.getProductPerformance(branchId, businessDate),
         client.getIngredientUsage(branchId, businessDate),
         client.getEmployeeActivity(branchId, businessDate),
+        client.getWasteAnalytics(branchId, businessDate),
       ]);
       setSales(salesData);
       setProducts(productData);
       setIngredients(ingredientData);
       setEmployees(employeeData as typeof employees);
+      setWaste(wasteData);
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to load reports', 'error');
     } finally {
@@ -64,14 +67,18 @@ export default function ReportsPage() {
         ? products.map((p) => [p.menuItemName, p.quantitySold, p.grossSales, p.cogsTotal])
         : tab === 'ingredients'
           ? ingredients.map((i) => [i.ingredientName, i.quantityUsed, i.uomCode, i.valueUsed])
-          : employees.map((e) => [e.userName, e.ordersHandled, e.grossSales, e.voidCount]);
+          : tab === 'waste'
+            ? (waste?.byIngredient ?? []).map((w) => [w.ingredientName, w.quantityWasted, w.valueWasted, w.eventCount])
+            : employees.map((e) => [e.userName, e.ordersHandled, e.grossSales, e.voidCount]);
 
     const header =
       tab === 'products'
         ? ['Product', 'Qty', 'Sales', 'COGS']
         : tab === 'ingredients'
           ? ['Ingredient', 'Qty used', 'UOM', 'Value']
-          : ['Staff', 'Orders', 'Sales', 'Voids'];
+          : tab === 'waste'
+            ? ['Ingredient', 'Qty wasted', 'Value', 'Events']
+            : ['Staff', 'Orders', 'Sales', 'Voids'];
 
     const csv = [header, ...rows].map((r) => r.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -116,15 +123,15 @@ export default function ReportsPage() {
         </div>
       ) : sales ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiCard label="Net sales" value={formatQar(sales.netSales)} />
-          <KpiCard label="Orders" value={String(sales.orderCount)} />
-          <KpiCard label="COGS" value={formatQar(sales.cogsTotal)} />
-          <KpiCard label="Voids" value={String(sales.voidCount)} />
+          <KpiCard label="Gross sales" value={formatQar(sales.grossSales)} subtext={`Net ${formatQar(sales.netSales)}`} />
+          <KpiCard label="Orders" value={String(sales.orderCount)} subtext={`Avg ticket ${sales.orderCount ? formatQar(String(parseFloat(sales.netSales) / sales.orderCount)) : '0'}`} />
+          <KpiCard label="COGS / margin" value={formatQar(sales.cogsTotal)} subtext={`Discounts ${formatQar(sales.discountTotal)} · Tax ${formatQar(sales.taxTotal)}`} />
+          <KpiCard label="Refunds / voids" value={formatQar(sales.refundTotal)} subtext={`${sales.voidCount} voids · Tips ${formatQar(sales.tipTotal ?? '0')}`} />
         </div>
       ) : null}
 
       <div className="flex gap-2">
-        {(['products', 'ingredients', 'staff'] as const).map((t) => (
+        {(['products', 'ingredients', 'staff', 'waste'] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -192,6 +199,36 @@ export default function ReportsPage() {
                 ))}
               </tbody>
             </table>
+          )
+        ) : tab === 'waste' ? (
+          !waste || waste.byIngredient.length === 0 ? (
+            <EmptyState title="No waste recorded" description="Waste entries appear from inventory operations" />
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-ink-muted">
+                {waste.totalRecords} events · total value {formatQar(waste.totalValue)}
+              </p>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-ink-muted">
+                    <th className="pb-3 pr-4 font-medium">Ingredient</th>
+                    <th className="pb-3 pr-4 font-medium">Qty wasted</th>
+                    <th className="pb-3 pr-4 font-medium">Value</th>
+                    <th className="pb-3 font-medium">Events</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {waste.byIngredient.map((w) => (
+                    <tr key={w.ingredientId} className="border-b border-border/60">
+                      <td className="py-3 pr-4 font-medium">{w.ingredientName}</td>
+                      <td className="py-3 pr-4">{w.quantityWasted}</td>
+                      <td className="py-3 pr-4">{formatQar(w.valueWasted)}</td>
+                      <td className="py-3">{w.eventCount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )
         ) : employees.length === 0 ? (
           <EmptyState title="No staff activity" />

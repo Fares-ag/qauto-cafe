@@ -2,11 +2,15 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { AuditAction } from '@prisma/client';
 import { AuditService } from './audit.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
+import { BranchAccessGuard } from '../common/guards/branch-access.guard';
+import { Permissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 
 @Controller('audit')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchAccessGuard)
+@Permissions('audit.view')
 export class AuditController {
   constructor(private readonly auditService: AuditService) {}
 

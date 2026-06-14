@@ -1,11 +1,17 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ModifierAction, Prisma, RecipeStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { FifoService } from '../inventory/fifo.service';
+import { UomConversionService } from '../inventory/uom-conversion.service';
 import { ResolveBomInput, ResolvedBomLine } from './recipe.types';
 
 @Injectable()
 export class RecipeEngineService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fifo: FifoService,
+    private readonly uom: UomConversionService,
+  ) {}
 
   async resolveBom(input: ResolveBomInput): Promise<{
     lines: ResolvedBomLine[];
@@ -26,6 +32,10 @@ export class RecipeEngineService {
         throw new BadRequestException(`Snack ${item.name} has no linked ingredient SKU`);
       }
 
+      if (!item.snackIngredient.trackStock) {
+        return { lines: [], recipeId: null, recipeVersion: null };
+      }
+
       const line: ResolvedBomLine = {
         ingredientId: item.snackIngredient.id,
         ingredientName: item.snackIngredient.name,
@@ -34,7 +44,7 @@ export class RecipeEngineService {
         uomCode: item.snackIngredient.baseUom.code,
       };
 
-      return { lines: [line], recipeId: null, recipeVersion: null };
+      return { lines: [await this.normalizeLine(line)], recipeId: null, recipeVersion: null };
     }
 
     const recipe = await this.prisma.recipe.findFirst({
@@ -63,13 +73,16 @@ export class RecipeEngineService {
       );
     }
 
-    let bomLines: ResolvedBomLine[] = recipe.lines.map((line) => ({
-      ingredientId: line.ingredientId,
-      ingredientName: line.ingredient.name,
-      quantity: line.quantity,
-      uomId: line.uomId,
-      uomCode: line.uom.code,
-    }));
+    let bomLines: ResolvedBomLine[] = recipe.lines
+      .filter((line) => !line.isOptional)
+      .filter((line) => line.ingredient.trackStock)
+      .map((line) => ({
+        ingredientId: line.ingredientId,
+        ingredientName: line.ingredient.name,
+        quantity: line.quantity,
+        uomId: line.uomId,
+        uomCode: line.uom.code,
+      }));
 
     if (input.modifierIds.length) {
       const rules = await this.prisma.modifierBomRule.findMany({
@@ -93,8 +106,10 @@ export class RecipeEngineService {
       quantity: line.quantity.mul(input.quantity),
     }));
 
+    const normalized = await Promise.all(scaled.map((line) => this.normalizeLine(line)));
+
     return {
-      lines: scaled,
+      lines: normalized,
       recipeId: recipe.id,
       recipeVersion: recipe.version,
     };
@@ -106,25 +121,40 @@ export class RecipeEngineService {
       resolved.lines.map(async (line) => {
         const available = await this.getAvailableQty(input.branchId, line.ingredientId);
         return {
-          ...line,
+          ingredientId: line.ingredientId,
+          ingredientName: line.ingredientName,
           quantity: line.quantity.toFixed(4),
           available: available.toFixed(4),
+          uom: line.uomCode,
           sufficient: available.gte(line.quantity),
         };
       }),
     );
 
-    const totalCogsEstimate = availability.reduce(
-      (acc, line) => acc.add(new Prisma.Decimal(0)),
-      new Prisma.Decimal(0),
-    );
+    let totalCogsEstimate = new Prisma.Decimal(0);
+    for (const line of resolved.lines) {
+      totalCogsEstimate = totalCogsEstimate.add(
+        await this.fifo.estimateLineCost(input.branchId, line.ingredientId, line.quantity),
+      );
+    }
 
     return {
       lines: availability,
       allSufficient: availability.every((l) => l.sufficient),
-      totalCogsEstimate: totalCogsEstimate.toFixed(6),
+      totalCogsEstimate: totalCogsEstimate.toFixed(2),
       recipeId: resolved.recipeId,
       recipeVersion: resolved.recipeVersion,
+    };
+  }
+
+  private async normalizeLine(line: ResolvedBomLine): Promise<ResolvedBomLine> {
+    const converted = await this.uom.convertToBase(line.ingredientId, line.quantity, line.uomId);
+    return {
+      ingredientId: line.ingredientId,
+      ingredientName: line.ingredientName,
+      quantity: converted.baseQuantity,
+      uomId: converted.baseUomId,
+      uomCode: converted.baseUomCode,
     };
   }
 
@@ -137,13 +167,22 @@ export class RecipeEngineService {
       quantity: Prisma.Decimal | null;
       uomId: string | null;
       scaleFactor: Prisma.Decimal | null;
-      replacementIngredient: { id: string; name: string; baseUomId: string; baseUom: { code: string } } | null;
+      replacementIngredient: {
+        id: string;
+        name: string;
+        baseUomId: string;
+        baseUom: { code: string };
+        trackStock: boolean;
+      } | null;
       uom: { id: string; code: string } | null;
     },
   ): ResolvedBomLine[] {
     switch (rule.action) {
       case ModifierAction.REPLACE: {
         if (!rule.targetIngredientId || !rule.replacementIngredient) return lines;
+        if (!rule.replacementIngredient.trackStock) {
+          return lines.filter((l) => l.ingredientId !== rule.targetIngredientId);
+        }
         const targetQty = lines
           .filter((l) => l.ingredientId === rule.targetIngredientId)
           .reduce((acc, l) => acc.add(l.quantity), new Prisma.Decimal(0));
@@ -163,7 +202,13 @@ export class RecipeEngineService {
         ];
       }
       case ModifierAction.ADD: {
-        if (!rule.replacementIngredientId || !rule.replacementIngredient || !rule.quantity || !rule.uom) {
+        if (
+          !rule.replacementIngredientId ||
+          !rule.replacementIngredient ||
+          !rule.replacementIngredient.trackStock ||
+          !rule.quantity ||
+          !rule.uom
+        ) {
           return lines;
         }
         return [
@@ -187,6 +232,30 @@ export class RecipeEngineService {
           ...l,
           quantity: l.quantity.mul(rule.scaleFactor!),
         }));
+      }
+      case ModifierAction.SWAP: {
+        if (
+          !rule.targetIngredientId ||
+          !rule.replacementIngredient ||
+          !rule.replacementIngredient.trackStock
+        ) {
+          return lines;
+        }
+        const targetQty = lines
+          .filter((l) => l.ingredientId === rule.targetIngredientId)
+          .reduce((acc, l) => acc.add(l.quantity), new Prisma.Decimal(0));
+        const withoutTarget = lines.filter((l) => l.ingredientId !== rule.targetIngredientId);
+        if (targetQty.lte(0)) return lines;
+        return [
+          ...withoutTarget,
+          {
+            ingredientId: rule.replacementIngredient.id,
+            ingredientName: rule.replacementIngredient.name,
+            quantity: targetQty,
+            uomId: rule.replacementIngredient.baseUomId,
+            uomCode: rule.replacementIngredient.baseUom.code,
+          },
+        ];
       }
       default:
         return lines;

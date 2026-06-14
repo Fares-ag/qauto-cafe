@@ -1,14 +1,14 @@
 'use client';
 
-import { ApiClient, ApiError } from '@qauto/api-client';
+import { ApiClient } from '@qauto/api-client';
 import { useAuthStore } from './auth-store';
 
-export const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
+export const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '/api/v1';
 
 export const wsBase =
   process.env.NEXT_PUBLIC_WS_URL?.replace(/\/ws\/?$/, '') ?? 'http://localhost:3001';
 
-export function getApiClient() {
+function createBareClient() {
   return new ApiClient({
     baseUrl,
     getAccessToken: () => useAuthStore.getState().accessToken,
@@ -16,9 +16,11 @@ export function getApiClient() {
   });
 }
 
-export async function refreshAccessToken(): Promise<boolean> {
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function performRefresh(): Promise<boolean> {
   try {
-    const client = getApiClient();
+    const client = createBareClient();
     const response = await client.refreshSession();
     const state = useAuthStore.getState();
     state.setSession({
@@ -28,23 +30,31 @@ export async function refreshAccessToken(): Promise<boolean> {
     });
     return true;
   } catch {
+    useAuthStore.getState().clearSession();
     return false;
   }
 }
 
-export async function withAuth<T>(fn: (client: ApiClient) => Promise<T>): Promise<T> {
-  try {
-    return await fn(getApiClient());
-  } catch (err) {
-    if (err instanceof ApiError && err.body.status === 401) {
-      const refreshed = await refreshAccessToken();
-      if (refreshed) {
-        return await fn(getApiClient());
-      }
-      useAuthStore.getState().clearSession();
-    }
-    throw err;
+export async function refreshAccessToken(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = performRefresh().finally(() => {
+      refreshInFlight = null;
+    });
   }
+  return refreshInFlight;
+}
+
+export function getApiClient() {
+  return new ApiClient({
+    baseUrl,
+    getAccessToken: () => useAuthStore.getState().accessToken,
+    getBranchId: () => useAuthStore.getState().branchId,
+    onUnauthorized: refreshAccessToken,
+  });
+}
+
+export async function withAuth<T>(fn: (client: ApiClient) => Promise<T>): Promise<T> {
+  return fn(getApiClient());
 }
 
 export function getBusinessDate(offsetDays = 0): string {

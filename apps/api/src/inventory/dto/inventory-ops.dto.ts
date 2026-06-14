@@ -19,6 +19,10 @@ export class ReceiveStockDto {
 
   @IsOptional()
   @IsString()
+  inputUomId?: string;
+
+  @IsOptional()
+  @IsString()
   notes?: string;
 }
 
@@ -38,6 +42,10 @@ export class WasteStockDto {
   @IsString()
   @IsNotEmpty()
   reason!: string;
+
+  @IsOptional()
+  @IsString()
+  inputUomId?: string;
 
   @IsOptional()
   @IsString()
@@ -64,4 +72,34 @@ export class AdjustStockDto {
   @IsOptional()
   @IsString()
   unitCost?: string;
+
+  @IsOptional()
+  @IsString()
+  inputUomId?: string;
+}
+
+export class TransferStockDto {
+  @IsString()
+  @IsNotEmpty()
+  fromBranchId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  toBranchId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  ingredientId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  quantity!: string;
+
+  @IsOptional()
+  @IsString()
+  inputUomId?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }

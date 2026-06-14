@@ -1,0 +1,9 @@
+# Trim Vercel upload — API deploys on Railway
+apps/api
+docker-compose.yml
+.github
+deploy
+prisma/migrations
+**/*.spec.ts
+**/e2e/**
+**/test/**

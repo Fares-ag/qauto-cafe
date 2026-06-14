@@ -9,17 +9,39 @@ import {
   StockShortage,
 } from './inventory.types';
 
+import { UomConversionService } from './uom-conversion.service';
+
 type TransactionClient = Prisma.TransactionClient;
 
 @Injectable()
 export class FifoService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly uom: UomConversionService,
+  ) {}
+
+  async normalizeLines(lines: ConsumptionLineInput[]): Promise<ConsumptionLineInput[]> {
+    const normalized: ConsumptionLineInput[] = [];
+
+    for (const line of lines) {
+      const converted = await this.uom.convertToBase(line.ingredientId, line.quantity, line.uomId);
+      normalized.push({
+        ingredientId: line.ingredientId,
+        ingredientName: line.ingredientName,
+        quantity: converted.baseQuantity,
+        uomId: converted.baseUomId,
+        uomCode: converted.baseUomCode,
+      });
+    }
+
+    return this.aggregateLines(normalized);
+  }
 
   async checkAvailability(
     branchId: string,
     lines: ConsumptionLineInput[],
   ): Promise<StockShortage[]> {
-    const aggregated = this.aggregateLines(lines);
+    const aggregated = await this.normalizeLines(lines);
     const shortages: StockShortage[] = [];
 
     for (const line of aggregated) {
@@ -45,7 +67,7 @@ export class FifoService {
     reference: { type: string; id: string },
     userId: string,
   ): Promise<ConsumptionResult> {
-    const aggregated = this.aggregateLines(lines);
+    const aggregated = await this.normalizeLines(lines);
     const shortages = await this.checkAvailabilityInTx(tx, branchId, aggregated);
 
     if (shortages.length) {
@@ -110,6 +132,39 @@ export class FifoService {
     return { allocations, totalCost };
   }
 
+  async estimateLineCost(
+    branchId: string,
+    ingredientId: string,
+    baseQuantity: Prisma.Decimal,
+  ): Promise<Prisma.Decimal> {
+    if (baseQuantity.lte(0)) {
+      return new Prisma.Decimal(0);
+    }
+
+    const layers = await this.prisma.stockLayer.findMany({
+      where: { branchId, ingredientId, quantityRemaining: { gt: 0 } },
+      select: { quantityRemaining: true, unitCost: true },
+    });
+
+    if (layers.length === 0) {
+      return new Prisma.Decimal(0);
+    }
+
+    let totalQty = new Prisma.Decimal(0);
+    let totalValue = new Prisma.Decimal(0);
+    for (const layer of layers) {
+      totalQty = totalQty.add(layer.quantityRemaining);
+      totalValue = totalValue.add(layer.quantityRemaining.mul(layer.unitCost));
+    }
+
+    if (totalQty.lte(0)) {
+      return new Prisma.Decimal(0);
+    }
+
+    const avgUnitCost = totalValue.div(totalQty);
+    return baseQuantity.mul(avgUnitCost);
+  }
+
   async reverseAllocations(
     tx: TransactionClient,
     branchId: string,
@@ -172,7 +227,7 @@ export class FifoService {
     const map = new Map<string, ConsumptionLineInput>();
 
     for (const line of lines) {
-      const key = `${line.ingredientId}:${line.uomId}`;
+      const key = line.ingredientId;
       const existing = map.get(key);
       if (existing) {
         existing.quantity = existing.quantity.add(line.quantity);

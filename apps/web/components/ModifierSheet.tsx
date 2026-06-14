@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { MenuCatalogItem } from '@qauto/shared-types';
+import { Button, Card, Input } from '@qauto/ui';
 
 interface ModifierSheetProps {
   item: MenuCatalogItem;
@@ -60,42 +61,52 @@ export function ModifierSheet({ item, onClose, onAdd }: ModifierSheetProps) {
     onClose();
   }
 
+  function chipClass(active: boolean) {
+    return `rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+      active
+        ? 'bg-brand text-brand-foreground shadow-soft'
+        : 'border border-border bg-surface-sunken text-ink-secondary hover:bg-surface-raised'
+    }`;
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
-        <div className="mb-4 flex items-start justify-between">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center">
+      <Card padding="lg" className="max-h-[90vh] w-full max-w-lg overflow-y-auto shadow-soft-lg">
+        <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-xl font-bold text-espresso">{item.name}</h3>
-            <p className="text-sm text-stone-500">{item.type === 'DRINK' ? 'Customize drink' : 'Add snack'}</p>
+            <h3 className="text-xl font-semibold text-ink">{item.name}</h3>
+            <p className="text-sm text-ink-muted">
+              {item.type === 'DRINK' ? 'Customize your drink' : 'Add to order'}
+            </p>
           </div>
-          <button type="button" onClick={onClose} className="text-stone-400 hover:text-stone-600">✕</button>
+          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
+            ✕
+          </Button>
         </div>
 
-        {item.type === 'DRINK' && item.sizes.length > 0 && (
+        {item.type === 'DRINK' && item.sizes.length > 0 ? (
           <div className="mb-4">
-            <p className="mb-2 text-sm font-medium">Size</p>
+            <p className="mb-2 text-sm font-medium text-ink">Size</p>
             <div className="flex flex-wrap gap-2">
               {item.sizes.map((size) => (
                 <button
                   key={size.id}
                   type="button"
                   onClick={() => setSizeId(size.id)}
-                  className={`rounded-lg px-4 py-2 text-sm font-medium ${
-                    sizeId === size.id ? 'bg-espresso text-white' : 'bg-stone-100 text-stone-700'
-                  }`}
+                  className={chipClass(sizeId === size.id)}
                 >
                   {size.name}
                 </button>
               ))}
             </div>
           </div>
-        )}
+        ) : null}
 
         {item.modifierGroups.map((group) => (
           <div key={group.id} className="mb-4">
-            <p className="mb-2 text-sm font-medium">
+            <p className="mb-2 text-sm font-medium text-ink">
               {group.name}
-              {group.isRequired && <span className="text-red-500"> *</span>}
+              {group.isRequired ? <span className="text-danger"> *</span> : null}
             </p>
             <div className="flex flex-wrap gap-2">
               {group.modifiers.map((mod) => {
@@ -105,14 +116,12 @@ export function ModifierSheet({ item, onClose, onAdd }: ModifierSheetProps) {
                     key={mod.id}
                     type="button"
                     onClick={() => toggleModifier(group.id, mod.id, group.maxSelections)}
-                    className={`rounded-lg px-3 py-2 text-sm ${
-                      active ? 'bg-amber-brand text-espresso' : 'bg-stone-100 text-stone-700'
-                    }`}
+                    className={chipClass(active)}
                   >
                     {mod.name}
-                    {parseFloat(mod.priceAdjustment) > 0 && (
-                      <span className="ml-1 text-xs">+{mod.priceAdjustment}</span>
-                    )}
+                    {parseFloat(mod.priceAdjustment) > 0 ? (
+                      <span className="ml-1 text-xs opacity-80">+{mod.priceAdjustment}</span>
+                    ) : null}
                   </button>
                 );
               })}
@@ -120,24 +129,18 @@ export function ModifierSheet({ item, onClose, onAdd }: ModifierSheetProps) {
           </div>
         ))}
 
-        <label className="mb-4 block text-sm font-medium">
-          Notes
-          <input
-            className="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Extra hot, less ice…"
-          />
-        </label>
+        <Input
+          label="Notes"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Extra hot, less ice…"
+          className="mb-4"
+        />
 
-        <button
-          type="button"
-          onClick={handleAdd}
-          className="w-full rounded-xl bg-espresso py-3 font-semibold text-white hover:bg-stone-800"
-        >
+        <Button variant="primary" size="lg" className="w-full" onClick={handleAdd}>
           Add to order
-        </button>
-      </div>
+        </Button>
+      </Card>
     </div>
   );
 }

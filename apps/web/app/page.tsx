@@ -6,13 +6,16 @@ import { useAuthStore } from '@/lib/auth-store';
 
 export default function HomePage() {
   const router = useRouter();
-  const accessToken = useAuthStore((s) => s.accessToken);
-  const hasHydrated = useAuthStore((s) => s.hasHydrated);
+  const { user, sessionType, hasHydrated } = useAuthStore();
 
   useEffect(() => {
     if (!hasHydrated) return;
-    router.replace(accessToken ? '/dashboard' : '/login');
-  }, [hasHydrated, accessToken, router]);
+    if (!user) {
+      router.replace('/login');
+      return;
+    }
+    router.replace(sessionType === 'staff' ? '/sell' : '/dashboard');
+  }, [hasHydrated, user, sessionType, router]);
 
   return (
     <main className="flex min-h-screen items-center justify-center">

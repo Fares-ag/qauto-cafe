@@ -7,19 +7,23 @@
     "dev:webpack": "next dev --port 3000",
     "build": "next build",
     "start": "next start --port 3000",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@qauto/api-client": "*",
     "@qauto/shared-types": "*",
     "@qauto/ui": "*",
+    "lucide-react": "^1.17.0",
     "next": "^15.3.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "recharts": "^2.15.0",
     "socket.io-client": "^4.8.3",
     "zustand": "^5.0.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/node": "^22.15.30",
     "@types/react": "^19.1.6",
     "@types/react-dom": "^19.1.5",

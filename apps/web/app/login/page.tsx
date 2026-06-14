@@ -10,8 +10,8 @@ import { baseUrl } from '@/lib/api';
 export default function AdminLoginPage() {
   const router = useRouter();
   const { user, hasHydrated, setSession } = useAuthStore();
-  const [email, setEmail] = useState('admin@qauto.com');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -32,6 +32,7 @@ export default function AdminLoginPage() {
         accessToken: res.accessToken,
         user: res.user,
         branchId: res.branchId ?? bootstrap.branch?.id,
+        sessionType: 'manager',
       });
       router.push('/dashboard');
     } catch (err) {
@@ -75,6 +76,12 @@ export default function AdminLoginPage() {
         </form>
 
         {error ? <Alert variant="error" className="mt-4">{error}</Alert> : null}
+
+        <p className="mt-6 text-center text-sm text-ink-muted">
+          <a href="/login/pin" className="text-brand hover:underline">
+            Staff PIN login
+          </a>
+        </p>
       </Card>
     </main>
   );

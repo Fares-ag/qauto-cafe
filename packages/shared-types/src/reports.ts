@@ -9,11 +9,45 @@ export interface DailySalesReport {
   cogsTotal: string;
   cashTotal: string;
   cardTotal: string;
+  corporateTotal?: string;
+  otherTotal?: string;
+  tipTotal?: string;
   voidCount: number;
   refundTotal: string;
   drinkSales: string;
   snackSales: string;
   refreshedAt: string;
+}
+
+export interface DashboardAnalytics {
+  businessDate: string;
+  kpis: DailySalesReport & {
+    marginPct: string;
+    avgTicket: string;
+    foodCostPct: string;
+  };
+  hourly: Array<{ hour: number; label: string; orderCount: number; netSales: string }>;
+  orderTypes: Array<{ orderType: string; orderCount: number; netSales: string }>;
+  paymentMix: Array<{ method: string; amount: string }>;
+  categoryMix: Array<{ category: string; amount: string }>;
+  trend: Array<{ businessDate: string; netSales: string; orderCount: number; cogsTotal: string }>;
+}
+
+export interface ArAgingReport {
+  branchId: string;
+  outstandingTotal: string;
+  orderCount: number;
+  buckets: Array<{ label: string; count: number; total: string }>;
+  byDepartment: Array<{ department: string; count: number; total: string }>;
+}
+
+export interface LoyaltySummaryReport {
+  branchId: string;
+  activeAccounts: number;
+  totalPointsBalance: number;
+  pointsIssued30d: number;
+  pointsRedeemed30d: number;
+  liabilityQar: string;
 }
 
 export interface ProductSalesReportRow {

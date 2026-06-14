@@ -11,7 +11,7 @@ const MENU_IMAGES = {
   CROISSANT: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=400&h=300&fit=crop',
 } as const;
 
-/** Full permission catalog — v1 assigns ALL to STAFF role (no runtime blocking). */
+/** Permission catalog — roles receive scoped subsets in production. */
 const PERMISSIONS = [
   { code: '*', name: 'All Permissions (wildcard)', module: 'system' },
 
@@ -87,6 +87,73 @@ const PERMISSIONS = [
   { code: 'admin.access', name: 'Access Admin Portal', module: 'admin' },
 ];
 
+const OWNER_PERMISSIONS = ['*'];
+
+const MANAGER_PERMISSIONS = [
+  'admin.access',
+  'branch.view',
+  'branch.manage',
+  'terminal.manage',
+  'user.view',
+  'user.manage',
+  'report.view',
+  'report.export',
+  'finance.view',
+  'audit.view',
+  'menu.view',
+  'menu.manage',
+  'menu.86',
+  'modifier.manage',
+  'recipe.view',
+  'recipe.manage',
+  'recipe.approve',
+  'recipe.simulate',
+  'ingredient.view',
+  'ingredient.manage',
+  'stock.view',
+  'stock.receive',
+  'stock.adjust',
+  'stock.waste',
+  'inventory.manage',
+  'supplier.manage',
+  'po.manage',
+  'customer.view',
+  'customer.manage',
+  'loyalty.manage',
+  'order.void',
+  'order.refund',
+  'payment.process',
+];
+
+const CASHIER_PERMISSIONS = [
+  'pos.access',
+  'bar.access',
+  'bar.manage_queue',
+  'order.create',
+  'order.update',
+  'order.discount',
+  'order.comp',
+  'payment.process',
+  'shift.open',
+  'shift.close',
+  'shift.cash_event',
+  'menu.view',
+  'stock.view',
+  'customer.view',
+];
+
+async function assignRolePermissions(roleId: string, codes: string[]) {
+  for (const code of codes) {
+    const permission = await prisma.permission.findUnique({ where: { code } });
+    if (!permission) continue;
+    await prisma.rolePermission.upsert({
+      where: { roleId_permissionId: { roleId, permissionId: permission.id } },
+      update: {},
+      create: { roleId, permissionId: permission.id },
+    });
+  }
+}
+
 async function main() {
   const org = await prisma.organization.upsert({
     where: { slug: 'qauto' },
@@ -99,6 +166,30 @@ async function main() {
     },
   });
 
+  const ownerRole = await prisma.role.upsert({
+    where: { organizationId_slug: { organizationId: org.id, slug: 'owner' } },
+    update: { description: 'Full organization access' },
+    create: {
+      organizationId: org.id,
+      name: 'Owner',
+      slug: 'owner',
+      description: 'Full organization access',
+      isSystem: true,
+    },
+  });
+
+  const managerRole = await prisma.role.upsert({
+    where: { organizationId_slug: { organizationId: org.id, slug: 'manager' } },
+    update: { description: 'Back-office and operations management' },
+    create: {
+      organizationId: org.id,
+      name: 'Manager',
+      slug: 'manager',
+      description: 'Back-office and operations management',
+      isSystem: true,
+    },
+  });
+
   const staffRole = await prisma.role.upsert({
     where: {
       organizationId_slug: {
@@ -107,38 +198,28 @@ async function main() {
       },
     },
     update: {
-      description: 'Full system access — all permissions granted',
+      description: 'Front-of-house POS and kitchen access',
     },
     create: {
       organizationId: org.id,
       name: 'Staff',
       slug: 'staff',
-      description: 'Full system access — all permissions granted',
+      description: 'Front-of-house POS and kitchen access',
       isSystem: true,
     },
   });
 
   for (const permission of PERMISSIONS) {
-    const record = await prisma.permission.upsert({
+    await prisma.permission.upsert({
       where: { code: permission.code },
       update: { name: permission.name, module: permission.module },
       create: permission,
     });
-
-    await prisma.rolePermission.upsert({
-      where: {
-        roleId_permissionId: {
-          roleId: staffRole.id,
-          permissionId: record.id,
-        },
-      },
-      update: {},
-      create: {
-        roleId: staffRole.id,
-        permissionId: record.id,
-      },
-    });
   }
+
+  await assignRolePermissions(ownerRole.id, OWNER_PERMISSIONS);
+  await assignRolePermissions(managerRole.id, MANAGER_PERMISSIONS);
+  await assignRolePermissions(staffRole.id, CASHIER_PERMISSIONS);
 
   const branch = await prisma.branch.upsert({
     where: {
@@ -158,9 +239,13 @@ async function main() {
 
   const uoms = [
     { code: 'g', name: 'Gram', symbol: 'g' },
+    { code: 'kg', name: 'Kilogram', symbol: 'kg' },
     { code: 'ml', name: 'Millilitre', symbol: 'ml' },
+    { code: 'L', name: 'Litre', symbol: 'L' },
     { code: 'each', name: 'Each', symbol: 'ea' },
     { code: 'pump', name: 'Pump', symbol: 'pump' },
+    { code: 'bottle', name: 'Bottle', symbol: 'btl' },
+    { code: 'case', name: 'Case', symbol: 'case' },
   ];
 
   for (const uom of uoms) {
@@ -171,8 +256,40 @@ async function main() {
     });
   }
 
+  const g = await prisma.uom.findUniqueOrThrow({ where: { code: 'g' } });
+  const kg = await prisma.uom.findUniqueOrThrow({ where: { code: 'kg' } });
+  const ml = await prisma.uom.findUniqueOrThrow({ where: { code: 'ml' } });
+  const L = await prisma.uom.findUniqueOrThrow({ where: { code: 'L' } });
+
+  const globalConversions: Array<{ fromId: string; toId: string; factor: string }> = [
+    { fromId: kg.id, toId: g.id, factor: '1000' },
+    { fromId: L.id, toId: ml.id, factor: '1000' },
+  ];
+
+  for (const conv of globalConversions) {
+    const existing = await prisma.uomConversion.findFirst({
+      where: { fromUomId: conv.fromId, toUomId: conv.toId, ingredientId: null },
+    });
+    if (existing) {
+      await prisma.uomConversion.update({
+        where: { id: existing.id },
+        data: { factor: conv.factor },
+      });
+    } else {
+      await prisma.uomConversion.create({
+        data: {
+          fromUomId: conv.fromId,
+          toUomId: conv.toId,
+          factor: conv.factor,
+        },
+      });
+    }
+  }
+
   const passwordHash = await bcrypt.hash('admin123', 10);
   const pinHash = await bcrypt.hash('1234', 10);
+  const cashierPasswordHash = await bcrypt.hash('cashier123', 10);
+  const cashierPinHash = await bcrypt.hash('5678', 10);
 
   const devUser = await prisma.user.upsert({
     where: {
@@ -187,7 +304,7 @@ async function main() {
     },
     create: {
       organizationId: org.id,
-      roleId: staffRole.id,
+      roleId: ownerRole.id,
       email: 'admin@qauto.com',
       passwordHash,
       pinHash,
@@ -200,11 +317,38 @@ async function main() {
     },
   });
 
+  await prisma.user.upsert({
+    where: {
+      organizationId_email: {
+        organizationId: org.id,
+        email: 'cashier@qauto.com',
+      },
+    },
+    update: {
+      passwordHash: cashierPasswordHash,
+      pinHash: cashierPinHash,
+      roleId: staffRole.id,
+    },
+    create: {
+      organizationId: org.id,
+      roleId: staffRole.id,
+      email: 'cashier@qauto.com',
+      passwordHash: cashierPasswordHash,
+      pinHash: cashierPinHash,
+      firstName: 'Cashier',
+      lastName: 'User',
+      employeeNumber: 'EMP002',
+      branches: {
+        create: [{ branchId: branch.id, isDefault: true }],
+      },
+    },
+  });
+
   console.log('Seed complete:', {
     org: org.slug,
     branchId: branch.id,
     branch: branch.code,
-    role: staffRole.slug,
+    role: ownerRole.slug,
     permissions: PERMISSIONS.length,
     devUser: devUser.email,
     devPin: '1234',
@@ -212,6 +356,96 @@ async function main() {
 
   await seedMenu(prisma, org.id, branch.id);
   await seedInventory(prisma, org.id, branch.id);
+  await seedCrm(prisma, org.id, branch.id);
+  await seedTerminals(prisma, branch.id);
+}
+
+async function seedTerminals(prisma: PrismaClient, branchId: string) {
+  const existing = await prisma.terminal.findFirst({
+    where: { branchId, type: 'POS', deletedAt: null },
+  });
+  if (!existing) {
+    await prisma.terminal.create({
+      data: { branchId, name: 'Main POS', type: 'POS', deviceToken: 'seed-pos-terminal' },
+    });
+  }
+  const kitchen = await prisma.terminal.findFirst({
+    where: { branchId, type: 'BAR_DISPLAY', deletedAt: null },
+  });
+  if (!kitchen) {
+    await prisma.terminal.create({
+      data: {
+        branchId,
+        name: 'Main Kitchen Display',
+        type: 'BAR_DISPLAY',
+        deviceToken: 'seed-kitchen-terminal',
+      },
+    });
+  }
+}
+
+async function seedCrm(prisma: PrismaClient, organizationId: string, branchId: string) {
+  const branch2 = await prisma.branch.upsert({
+    where: { organizationId_code: { organizationId, code: 'NORTH' } },
+    update: {},
+    create: {
+      organizationId,
+      name: 'North Campus',
+      code: 'NORTH',
+      address: 'Building B',
+    },
+  });
+
+  const customer = await prisma.customer.upsert({
+    where: { id: 'seed-customer-1' },
+    update: {},
+    create: {
+      id: 'seed-customer-1',
+      organizationId,
+      firstName: 'Sarah',
+      lastName: 'Al-Thani',
+      email: 'sarah@qauto.com',
+      department: 'Engineering',
+      employeeId: 'EMP100',
+    },
+  });
+
+  await prisma.loyaltyAccount.upsert({
+    where: { customerId: customer.id },
+    update: {},
+    create: { customerId: customer.id, pointsBalance: 250, lifetimePoints: 250 },
+  });
+
+  await prisma.reward.upsert({
+    where: { id: 'seed-reward-1' },
+    update: {},
+    create: {
+      id: 'seed-reward-1',
+      organizationId,
+      name: 'Free drink',
+      pointsCost: 100,
+    },
+  });
+
+  await prisma.giftCard.upsert({
+    where: { code: 'GC-SEED001' },
+    update: {},
+    create: {
+      code: 'GC-SEED001',
+      organizationId,
+      balance: 25,
+      initialValue: 25,
+      customerId: customer.id,
+      status: 'ACTIVE',
+    },
+  });
+
+  await prisma.ingredient.updateMany({
+    where: { organizationId, code: { in: ['ESPRESSO_BEANS', 'WHOLE_MILK', 'CROISSANT_SKU'] } },
+    data: { reorderPoint: 1000 },
+  });
+
+  console.log('CRM seeded:', { branch2: branch2.code, customer: customer.id });
 }
 
 async function upsertIngredient(

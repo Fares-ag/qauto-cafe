@@ -21,6 +21,14 @@ import { JobsModule } from './jobs/jobs.module';
 
 import { AuditModule } from './audit/audit.module';
 import { ProcurementModule } from './procurement/procurement.module';
+import { CustomersModule } from './customers/customers.module';
+import { IngredientsAdminModule } from './ingredients-admin/ingredients-admin.module';
+import { DiscountsModule } from './discounts/discounts.module';
+import { LoyaltyModule } from './loyalty/loyalty.module';
+import { GiftCardsModule } from './gift-cards/gift-cards.module';
+import { CommonModule } from './common/common.module';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 @Module({
   imports: [
@@ -29,6 +37,8 @@ import { ProcurementModule } from './procurement/procurement.module';
       load: [configuration],
       envFilePath: ['.env', '../../.env'],
     }),
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 30 }]),
+    CommonModule,
     PrismaModule,
     RedisModule,
     EventsModule,
@@ -47,7 +57,13 @@ import { ProcurementModule } from './procurement/procurement.module';
     ReportsModule,
     JobsModule,
     ProcurementModule,
+    CustomersModule,
+    IngredientsAdminModule,
+    DiscountsModule,
+    LoyaltyModule,
+    GiftCardsModule,
     WsModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

@@ -21,6 +21,7 @@ interface CartState {
   setSyncing: (value: boolean) => void;
   localLines: CartLineInput[];
   setLocalLines: (lines: CartLineInput[]) => void;
+  reset: () => void;
 }
 
 export const useCartStore = create<CartState>((set) => ({
@@ -34,4 +35,12 @@ export const useCartStore = create<CartState>((set) => ({
   setPending: (pending) => set({ pending }),
   setSyncing: (isSyncing) => set({ isSyncing }),
   setLocalLines: (localLines) => set({ localLines }),
+  reset: () =>
+    set({
+      catalog: null,
+      order: null,
+      pending: null,
+      isSyncing: false,
+      localLines: [],
+    }),
 }));

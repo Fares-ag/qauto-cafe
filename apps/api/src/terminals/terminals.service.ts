@@ -10,9 +10,14 @@ export class TerminalsService {
     private readonly crypto: CryptoService,
   ) {}
 
-  async register(dto: RegisterTerminalDto) {
+  async register(dto: RegisterTerminalDto, organizationId?: string) {
     const branch = await this.prisma.branch.findFirst({
-      where: { id: dto.branchId, deletedAt: null, isActive: true },
+      where: {
+        id: dto.branchId,
+        deletedAt: null,
+        isActive: true,
+        ...(organizationId ? { organizationId } : {}),
+      },
     });
 
     if (!branch) {
@@ -43,7 +48,14 @@ export class TerminalsService {
     };
   }
 
-  async listByBranch(branchId: string) {
+  async listByBranch(branchId: string, organizationId: string) {
+    const branch = await this.prisma.branch.findFirst({
+      where: { id: branchId, organizationId, deletedAt: null },
+    });
+    if (!branch) {
+      throw new NotFoundException('Branch not found');
+    }
+
     return this.prisma.terminal.findMany({
       where: { branchId, deletedAt: null, isActive: true },
       orderBy: { name: 'asc' },

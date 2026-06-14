@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiError } from '@qauto/api-client';
-import type { CartLineInput, MenuCatalogItem, StockShortageError } from '@qauto/shared-types';
+import type { CartLineInput, MenuCatalogItem, OrderType, StockShortageError } from '@qauto/shared-types';
 import { Alert, Button, Card, Input, useToast } from '@qauto/ui';
 import { useAuthStore } from '@/lib/auth-store';
 import { useCartStore } from '@/lib/cart-store';
@@ -12,6 +12,16 @@ import { printReceipt } from '@/lib/print-receipt';
 import { MenuGrid } from '@/components/MenuGrid';
 import { ModifierSheet } from '@/components/ModifierSheet';
 import { CartPanel } from '@/components/CartPanel';
+import { SplitPaySheet, type SplitPaymentRow } from '@/components/SplitPaySheet';
+import type { CustomerOption } from '@/components/CustomerAutocomplete';
+import { getCategoryIcon } from '@/lib/navigation';
+
+const ORDER_TYPES: { value: OrderType; label: string }[] = [
+  { value: 'COUNTER', label: 'Counter' },
+  { value: 'TAKEAWAY', label: 'Takeaway' },
+  { value: 'STAFF', label: 'Staff' },
+  { value: 'COMP', label: 'Comp' },
+];
 
 function isStockShortageErrors(errors: unknown): errors is StockShortageError[] {
   return (
@@ -51,6 +61,16 @@ export default function SellPage() {
   const [openingFloat, setOpeningFloat] = useState('100.0000');
   const [closeCash, setCloseCash] = useState('');
   const [showCloseShift, setShowCloseShift] = useState(false);
+  const [customerName, setCustomerName] = useState('');
+  const [customerDepartment, setCustomerDepartment] = useState('');
+  const [paymentDueDate, setPaymentDueDate] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerOption | null>(null);
+  const [loyaltyPointsRedeem, setLoyaltyPointsRedeem] = useState('');
+  const [giftCardCode, setGiftCardCode] = useState('');
+  const [orderType, setOrderType] = useState<OrderType>('COUNTER');
+  const [discountType, setDiscountType] = useState<'PERCENTAGE' | 'FIXED_AMOUNT'>('PERCENTAGE');
+  const [discountValue, setDiscountValue] = useState('');
+  const [showSplitPay, setShowSplitPay] = useState(false);
 
   useEffect(() => {
     if (!branchId) return;
@@ -96,11 +116,12 @@ export default function SellPage() {
         branchId,
         terminalId: posTerminalId ?? undefined,
         shiftId: shiftId ?? undefined,
+        orderType,
       }),
     );
     setOrder(created);
     return created;
-  }, [order, branchId, posTerminalId, shiftId, setOrder]);
+  }, [order, branchId, posTerminalId, shiftId, orderType, setOrder]);
 
   useEffect(() => {
     if (branchId && currentShift) {
@@ -203,7 +224,58 @@ export default function SellPage() {
     }
   }
 
-  async function handlePay(method: 'CASH' | 'CARD') {
+  async function syncCustomer(orderId: string) {
+    if (!customerName && !customerDepartment && !paymentDueDate && !selectedCustomer) return;
+    await withAuth((client) =>
+      client.updateOrderCustomer(orderId, {
+        customerId: selectedCustomer?.id,
+        customerName: customerName || selectedCustomer?.name || undefined,
+        customerDepartment: customerDepartment || selectedCustomer?.department || undefined,
+        paymentDueDate: paymentDueDate || undefined,
+      }),
+    );
+  }
+
+  async function handleApplyDiscount() {
+    if (!order?.lines.length || !discountValue) return;
+    setSyncing(true);
+    setError(null);
+    try {
+      const current = order ?? (await ensureOrder());
+      if (!current) return;
+      const updated = await withAuth((client) =>
+        client.applyOrderDiscount(current.id, {
+          scope: 'ORDER',
+          type: discountType,
+          value: discountValue,
+        }),
+      );
+      setOrder(updated);
+      toast('Discount applied', 'success');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to apply discount');
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function handleClearDiscount() {
+    if (!order) return;
+    setSyncing(true);
+    try {
+      const updated = await withAuth((client) => client.clearOrderDiscount(order.id));
+      setOrder(updated);
+      setDiscountValue('');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to clear discount', 'error');
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function completePayment(
+    payments: Array<{ method: 'CASH' | 'CARD' | 'CORPORATE' | 'OTHER'; amount: string; reference?: string }>,
+  ) {
     if (!order?.lines.length) return;
     setSyncing(true);
     setPayError(null);
@@ -211,10 +283,14 @@ export default function SellPage() {
     setPaySuccess(null);
 
     try {
+      await syncCustomer(order.id);
+      const points = loyaltyPointsRedeem ? parseInt(loyaltyPointsRedeem, 10) : undefined;
       const result = await withAuth((client) =>
         client.payOrder(order.id, {
-          payments: [{ method, amount: order.total }],
+          payments,
           idempotencyKey: crypto.randomUUID(),
+          loyaltyPointsRedeem: points && points > 0 ? points : undefined,
+          giftCardCode: giftCardCode || undefined,
         }),
       );
 
@@ -229,10 +305,19 @@ export default function SellPage() {
       toast('Payment successful', 'success');
       printReceipt(result);
       await loadCatalog();
+      setShowSplitPay(false);
 
       setTimeout(() => {
         setOrder(null);
         setPaySuccess(null);
+        setCustomerName('');
+        setCustomerDepartment('');
+        setPaymentDueDate('');
+        setSelectedCustomer(null);
+        setLoyaltyPointsRedeem('');
+        setGiftCardCode('');
+        setOrderType('COUNTER');
+        setDiscountValue('');
       }, 3000);
     } catch (err) {
       if (
@@ -243,6 +328,70 @@ export default function SellPage() {
         setStockErrors(err.body.errors);
       } else {
         setPayError(err instanceof Error ? err.message : 'Payment failed');
+      }
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function handlePay(method: 'CASH' | 'CARD') {
+    if (!order?.lines.length) return;
+    await completePayment([{ method, amount: order.total }]);
+  }
+
+  async function handlePayWithGiftCard() {
+    if (!order?.lines.length || !giftCardCode) return;
+    await completePayment([
+      { method: 'OTHER', amount: order.total, reference: giftCardCode },
+    ]);
+  }
+
+  async function handleSplitPayConfirm(payments: SplitPaymentRow[]) {
+    await completePayment(payments);
+  }
+
+  async function handlePayLater() {
+    if (!order?.lines.length) return;
+    setSyncing(true);
+    setPayError(null);
+    setStockErrors([]);
+    setPaySuccess(null);
+
+    try {
+      await syncCustomer(order.id);
+      const result = await withAuth((client) => client.deferOrder(order.id));
+
+      setOrder({
+        ...order,
+        status: result.order.status,
+        cogsTotal: result.order.cogsTotal,
+        deferredAt: result.order.deferredAt,
+        customerName: result.order.customerName ?? (customerName || null),
+        customerDepartment: result.order.customerDepartment ?? (customerDepartment || null),
+      });
+
+      setPaySuccess(
+        `Order #${result.order.orderNumber} sent to kitchen · payment pending`,
+      );
+      toast('Order deferred — collect payment later', 'success');
+      await loadCatalog();
+
+      setTimeout(() => {
+        setOrder(null);
+        setPaySuccess(null);
+        setCustomerName('');
+        setCustomerDepartment('');
+        setPaymentDueDate('');
+      }, 3000);
+    } catch (err) {
+      if (
+        err instanceof ApiError &&
+        err.body.status === 409 &&
+        isStockShortageErrors(err.body.errors)
+      ) {
+        setStockErrors(err.body.errors);
+      } else {
+        setPayError(err instanceof Error ? err.message : 'Defer failed');
       }
     } finally {
       setSyncing(false);
@@ -261,8 +410,10 @@ export default function SellPage() {
     return (
       <div className="mx-auto max-w-md">
         <Card padding="lg">
-          <h1 className="text-xl font-semibold text-ink">Open shift</h1>
-          <p className="mt-1 text-sm text-ink-muted">Start your shift before taking orders</p>
+          <h1 className="text-xl font-semibold text-ink">Open your shift</h1>
+          <p className="mt-1 text-sm text-ink-muted">
+            Enter the cash in the drawer, then start taking orders
+          </p>
           <div className="mt-4 space-y-3">
             <Input
               label="Opening float (QAR)"
@@ -281,15 +432,45 @@ export default function SellPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-ink">Sell</h1>
-          <p className="text-sm text-ink-muted">
-            {order ? `Order #${order.orderNumber}` : 'New order'} · Shift open
-          </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-ink">Sell</h1>
+            <p className="text-sm text-ink-muted">
+              {order ? `Order #${order.orderNumber}` : 'New order'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 rounded-full border border-success/30 bg-success-muted px-3 py-1.5">
+            <span className="h-2 w-2 rounded-full bg-success" aria-hidden />
+            <span className="text-xs font-semibold text-success">Shift open</span>
+            {currentShift?.openingFloat ? (
+              <span className="text-xs text-ink-muted">
+                · Float {currentShift.openingFloat} QAR
+              </span>
+            ) : null}
+          </div>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => setShowCloseShift(true)}>
-          Close shift
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-lg border border-border bg-surface-raised p-0.5">
+            {ORDER_TYPES.map((type) => (
+              <button
+                key={type.value}
+                type="button"
+                disabled={Boolean(order?.lines.length)}
+                onClick={() => setOrderType(type.value)}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  orderType === type.value
+                    ? 'bg-brand text-brand-foreground'
+                    : 'text-ink-secondary hover:bg-surface-sunken disabled:opacity-50'
+                }`}
+              >
+                {type.label}
+              </button>
+            ))}
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => setShowCloseShift(true)}>
+            Close shift
+          </Button>
+        </div>
       </div>
 
       {paySuccess ? <Alert variant="success">{paySuccess}</Alert> : null}
@@ -303,12 +484,13 @@ export default function SellPage() {
                 key={category.id}
                 type="button"
                 onClick={() => setActiveCategoryId(category.id)}
-                className={`rounded-full px-4 py-2 text-sm font-medium transition-all duration-150 ${
+                className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-all duration-150 ${
                   activeCategory?.id === category.id
                     ? 'bg-brand text-brand-foreground shadow-soft'
                     : 'border border-border bg-surface-raised text-ink-secondary hover:bg-surface-sunken'
                 }`}
               >
+                <span>{getCategoryIcon(category.name)}</span>
                 {category.name}
               </button>
             ))}
@@ -332,8 +514,35 @@ export default function SellPage() {
           isSyncing={isSyncing}
           payError={payError}
           stockErrors={stockErrors}
+          customer={selectedCustomer}
+          customerName={customerName}
+          customerDepartment={customerDepartment}
+          paymentDueDate={paymentDueDate}
+          loyaltyPointsRedeem={loyaltyPointsRedeem}
+          giftCardCode={giftCardCode}
+          discountType={discountType}
+          discountValue={discountValue}
+          onCustomerChange={(c) => {
+            setSelectedCustomer(c);
+            if (c) {
+              setCustomerName(c.name);
+              if (c.department) setCustomerDepartment(c.department);
+            }
+          }}
+          onCustomerNameChange={setCustomerName}
+          onCustomerDepartmentChange={setCustomerDepartment}
+          onPaymentDueDateChange={setPaymentDueDate}
+          onLoyaltyPointsRedeemChange={setLoyaltyPointsRedeem}
+          onGiftCardCodeChange={setGiftCardCode}
+          onDiscountTypeChange={setDiscountType}
+          onDiscountValueChange={setDiscountValue}
+          onApplyDiscount={handleApplyDiscount}
+          onClearDiscount={handleClearDiscount}
           onClear={handleClear}
           onPay={handlePay}
+          onSplitPay={() => setShowSplitPay(true)}
+          onPayWithGiftCard={handlePayWithGiftCard}
+          onPayLater={handlePayLater}
           onUpdateQuantity={handleUpdateQuantity}
           onRemoveLine={handleRemoveLine}
         />
@@ -352,6 +561,15 @@ export default function SellPage() {
               notes: payload.notes,
             })
           }
+        />
+      ) : null}
+
+      {showSplitPay && order?.lines.length ? (
+        <SplitPaySheet
+          order={order}
+          isSyncing={isSyncing}
+          onClose={() => setShowSplitPay(false)}
+          onConfirm={handleSplitPayConfirm}
         />
       ) : null}
 

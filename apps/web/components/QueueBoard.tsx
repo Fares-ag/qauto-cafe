@@ -4,12 +4,14 @@ import type { OrderStatus, QueueOrder } from '@qauto/shared-types';
 import { Badge, Button } from '@qauto/ui';
 
 const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
+  PENDING_PAYMENT: 'IN_PREP',
   PAID: 'IN_PREP',
   IN_PREP: 'READY',
   READY: 'COMPLETED',
 };
 
 const ACTION_LABEL: Partial<Record<OrderStatus, string>> = {
+  PENDING_PAYMENT: 'Start prep',
   PAID: 'Start prep',
   IN_PREP: 'Mark ready',
   READY: 'Complete',
@@ -19,10 +21,12 @@ export function OrderCard({
   order,
   onBump,
   busy,
+  large = false,
 }: {
   order: QueueOrder;
   onBump: (orderId: string, status: OrderStatus) => void;
   busy: boolean;
+  large?: boolean;
 }) {
   const nextStatus = NEXT_STATUS[order.status as OrderStatus];
   const actionLabel = ACTION_LABEL[order.status as OrderStatus];
@@ -31,17 +35,28 @@ export function OrderCard({
     <article className="rounded-xl border border-border bg-surface-raised p-4 shadow-soft transition-shadow duration-150 hover:shadow-card">
       <div className="mb-3 flex items-start justify-between gap-2">
         <div>
-          <p className="text-2xl font-bold tracking-tight text-ink">#{order.orderNumber}</p>
-          {order.paidAt ? (
+          <p className={`font-bold tracking-tight text-ink ${large ? 'text-4xl' : 'text-2xl'}`}>
+            #{order.orderNumber}
+          </p>
+          {order.customerName ? (
+            <p className="text-sm text-ink-secondary">{order.customerName}</p>
+          ) : null}
+          {order.status === 'PENDING_PAYMENT' || (order.deferredAt && !order.paidAt) ? (
+            <Badge variant="warning" className="mt-1">Unpaid</Badge>
+          ) : null}
+          {order.paidAt || order.deferredAt ? (
             <p className="text-xs text-ink-muted">
-              {new Date(order.paidAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {new Date(order.paidAt ?? order.deferredAt!).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
             </p>
           ) : null}
         </div>
         <Badge variant="neutral">{order.total} QAR</Badge>
       </div>
 
-      <ul className="space-y-2 text-sm">
+      <ul className={`space-y-2 ${large ? 'text-base' : 'text-sm'}`}>
         {order.lines.map((line) => (
           <li key={line.id}>
             <span className="font-medium text-ink">
@@ -76,16 +91,20 @@ export function QueueColumn({
   orders,
   onBump,
   bumpingId,
+  large = false,
 }: {
   title: string;
   orders: QueueOrder[];
   onBump: (orderId: string, status: OrderStatus) => void;
   bumpingId: string | null;
+  large?: boolean;
 }) {
   return (
-    <section className="flex min-h-[70vh] flex-col rounded-xl border border-border bg-surface-sunken/50 p-4">
+    <section className={`flex flex-col rounded-xl border border-border bg-surface-sunken/50 p-4 ${large ? 'min-h-[80vh]' : 'min-h-[70vh]'}`}>
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-accent">{title}</h2>
+        <h2 className={`font-semibold uppercase tracking-wide text-accent ${large ? 'text-base' : 'text-sm'}`}>
+          {title}
+        </h2>
         <Badge variant="neutral">{orders.length}</Badge>
       </div>
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto">
@@ -98,6 +117,7 @@ export function QueueColumn({
               order={order}
               onBump={onBump}
               busy={bumpingId === order.id}
+              large={large}
             />
           ))
         )}

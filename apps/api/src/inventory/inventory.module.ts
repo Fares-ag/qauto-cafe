@@ -5,8 +5,8 @@ import { FifoService } from './fifo.service';
 import { EightySixService } from './eighty-six.service';
 
 import { InventoryController } from './inventory.controller';
-
 import { InventoryOpsService } from './inventory-ops.service';
+import { UomConversionService } from './uom-conversion.service';
 
 
 
@@ -14,9 +14,8 @@ import { InventoryOpsService } from './inventory-ops.service';
 
   controllers: [InventoryController],
 
-  providers: [FifoService, EightySixService, InventoryOpsService],
-
-  exports: [FifoService, EightySixService, InventoryOpsService],
+  providers: [FifoService, EightySixService, InventoryOpsService, UomConversionService],
+  exports: [FifoService, EightySixService, InventoryOpsService, UomConversionService],
 
 })
 

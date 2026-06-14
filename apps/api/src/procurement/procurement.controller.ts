@@ -1,17 +1,22 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { SuppliersService } from './suppliers.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import {
   CreatePurchaseOrderDto,
   CreateSupplierDto,
   ReceivePurchaseOrderDto,
+  UpdatePurchaseOrderDto,
 } from './dto/procurement.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
+import { BranchAccessGuard } from '../common/guards/branch-access.guard';
+import { Permissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 
 @Controller('suppliers')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Permissions('supplier.manage', 'inventory.manage')
 export class SuppliersController {
   constructor(private readonly suppliersService: SuppliersService) {}
 
@@ -27,7 +32,8 @@ export class SuppliersController {
 }
 
 @Controller('purchase-orders')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchAccessGuard)
+@Permissions('po.manage', 'inventory.manage')
 export class PurchaseOrdersController {
   constructor(private readonly purchaseOrdersService: PurchaseOrdersService) {}
 
@@ -47,6 +53,15 @@ export class PurchaseOrdersController {
   @Post()
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreatePurchaseOrderDto) {
     return this.purchaseOrdersService.create(user.organizationId, user.id, dto);
+  }
+
+  @Patch(':id')
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: UpdatePurchaseOrderDto,
+  ) {
+    return this.purchaseOrdersService.update(user.organizationId, user.id, id, dto);
   }
 
   @Post(':id/send')

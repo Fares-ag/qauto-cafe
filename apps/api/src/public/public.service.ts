@@ -19,12 +19,17 @@ export class PublicService {
 
     const branch = org?.branches[0];
     if (!org || !branch) {
-      return { organization: null, branch: null };
+      return { organization: null, branch: null, terminals: [] };
     }
 
     return {
       organization: { id: org.id, name: org.name, slug: org.slug },
       branch: { id: branch.id, name: branch.name, code: branch.code },
+      terminals: await this.prisma.terminal.findMany({
+        where: { branchId: branch.id, deletedAt: null, isActive: true },
+        select: { id: true, name: true, type: true },
+        orderBy: { name: 'asc' },
+      }),
     };
   }
 }

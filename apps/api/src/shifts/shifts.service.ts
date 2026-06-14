@@ -17,6 +17,19 @@ export class ShiftsService {
     private readonly domainEvents: DomainEventsService,
   ) {}
 
+  async list(organizationId: string, branchId: string, limit = 20) {
+    await this.assertBranch(organizationId, branchId);
+    const take = Math.min(limit, 50);
+
+    const shifts = await this.prisma.shift.findMany({
+      where: { branchId },
+      orderBy: { openedAt: 'desc' },
+      take,
+    });
+
+    return shifts.map((shift) => this.serializeShift(shift));
+  }
+
   async open(organizationId: string, userId: string, dto: OpenShiftDto) {
     await this.assertBranch(organizationId, dto.branchId);
 

@@ -13,6 +13,8 @@ import { PinLoginDto } from './dto/pin-login.dto';
 import { AuthenticatedUser, JwtPayload } from './types/authenticated-user.type';
 import type { LoginResponse } from '@qauto/shared-types';
 
+import { PinLockoutService } from './pin-lockout.service';
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -20,6 +22,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly crypto: CryptoService,
+    private readonly pinLockout: PinLockoutService,
   ) {}
 
   async login(dto: LoginDto, ipAddress?: string, userAgent?: string): Promise<LoginResponse & { refreshToken: string }> {
@@ -53,6 +56,8 @@ export class AuthService {
   }
 
   async pinLogin(dto: PinLoginDto, ipAddress?: string): Promise<LoginResponse & { refreshToken: string }> {
+    await this.pinLockout.assertNotLocked(dto.terminalId);
+
     const terminal = await this.prisma.terminal.findFirst({
       where: {
         id: dto.terminalId,
@@ -84,8 +89,11 @@ export class AuthService {
     }
 
     if (!matchedUser) {
+      await this.pinLockout.recordFailure(dto.terminalId);
       throw new UnauthorizedException('Invalid PIN');
     }
+
+    await this.pinLockout.clear(dto.terminalId);
 
     await this.prisma.terminal.update({
       where: { id: terminal.id },

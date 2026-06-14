@@ -4,6 +4,7 @@ export type TerminalType = 'POS' | 'BAR_DISPLAY' | 'ADMIN';
 
 export type OrderStatus =
   | 'DRAFT'
+  | 'PENDING_PAYMENT'
   | 'PAID'
   | 'IN_PREP'
   | 'READY'
@@ -70,6 +71,7 @@ export const WS_EVENTS = {
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
 
 export * from './menu';
+export * from './inventory';
 export * from './queue';
 export * from './shifts';
 export * from './reports';

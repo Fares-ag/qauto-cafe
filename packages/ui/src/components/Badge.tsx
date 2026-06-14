@@ -30,16 +30,35 @@ export function Badge({
 }
 
 export function StatusBadge({ status }: { status: string }) {
+  const labels: Record<string, string> = {
+    DRAFT: 'Draft',
+    PENDING_PAYMENT: 'Unpaid',
+    PAID: 'Paid',
+    IN_PREP: 'In prep',
+    READY: 'Ready',
+    COMPLETED: 'Completed',
+    VOIDED: 'Voided',
+    REFUNDED: 'Refunded',
+    PARTIALLY_REFUNDED: 'Partial refund',
+    OPEN: 'Open',
+    CLOSED: 'Closed',
+  };
+
   const map: Record<string, BadgeVariant> = {
     PAID: 'accent',
+    PENDING_PAYMENT: 'warning',
     IN_PREP: 'warning',
     READY: 'success',
     COMPLETED: 'neutral',
     VOIDED: 'danger',
     REFUNDED: 'danger',
+    PARTIALLY_REFUNDED: 'danger',
     DRAFT: 'neutral',
     OPEN: 'success',
     CLOSED: 'neutral',
   };
-  return <Badge variant={map[status] ?? 'neutral'}>{status.replace('_', ' ')}</Badge>;
+
+  return (
+    <Badge variant={map[status] ?? 'neutral'}>{labels[status] ?? status.replaceAll('_', ' ')}</Badge>
+  );
 }

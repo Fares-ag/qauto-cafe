@@ -6,9 +6,13 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { CryptoService } from '../common/crypto.service';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
+import { PinLockoutService } from './pin-lockout.service';
+import { RedisModule } from '../redis/redis.module';
 
 @Module({
   imports: [
+    RedisModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       inject: [ConfigService],
@@ -21,7 +25,7 @@ import { CryptoService } from '../common/crypto.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, CryptoService],
-  exports: [AuthService, JwtModule],
+  providers: [AuthService, JwtStrategy, CryptoService, PermissionsGuard, PinLockoutService],
+  exports: [AuthService, JwtModule, PermissionsGuard],
 })
 export class AuthModule {}

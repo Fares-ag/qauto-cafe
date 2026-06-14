@@ -13,8 +13,11 @@ export interface QueueOrder {
   orderNumber: number;
   status: OrderStatus;
   customerName: string | null;
+  customerDepartment: string | null;
   total: string;
   paidAt: string | null;
+  deferredAt: string | null;
+  paymentDueDate: string | null;
   updatedAt: string;
   lines: QueueOrderLine[];
 }

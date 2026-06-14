@@ -6,8 +6,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // =============================================================================
@@ -47,6 +48,7 @@ enum RecipeStatus {
 
 enum OrderStatus {
   DRAFT
+  PENDING_PAYMENT
   PAID
   IN_PREP
   READY
@@ -200,6 +202,7 @@ model Organization {
   modifierGroups       ModifierGroup[]
   orders               Order[]
   rewards              Reward[]
+  giftCards            GiftCard[]
 
   @@map("organizations")
 }
@@ -233,6 +236,8 @@ model Branch {
   productSalesSummaries     ProductSalesSummary[]
   ingredientUsageSummaries  IngredientUsageSummary[]
   employeeActivitySummaries EmployeeActivitySummary[]
+  hourlySalesSummaries      HourlySalesSummary[]
+  orderTypeSummaries        OrderTypeSummary[]
 
   @@unique([organizationId, code])
   @@index([organizationId, isActive])
@@ -925,8 +930,11 @@ model Order {
   status         OrderStatus @default(DRAFT)
   orderType      OrderType   @default(COUNTER) @map("order_type")
   syncStatus     SyncStatus  @default(SYNCED) @map("sync_status")
-  customerName   String?     @map("customer_name")
-  notes          String?
+  customerName       String?     @map("customer_name")
+  customerDepartment String?     @map("customer_department")
+  deferredAt         DateTime?   @map("deferred_at")
+  paymentDueDate     DateTime?   @map("payment_due_date") @db.Date
+  notes              String?
   subtotal       Decimal     @default(0) @db.Decimal(18, 4)
   discountTotal  Decimal     @default(0) @map("discount_total") @db.Decimal(18, 4)
   taxTotal       Decimal     @default(0) @map("tax_total") @db.Decimal(18, 4)
@@ -954,6 +962,7 @@ model Order {
   payments     Payment[]
   refunds      Refund[]
   receipts     Receipt[]
+  aggregationLedger OrderAggregationLedger[]
 
   @@unique([branchId, orderNumber])
   @@index([organizationId, createdAt])
@@ -1194,6 +1203,7 @@ model Customer {
   email          String?
   phone          String?
   employeeId     String?   @map("employee_id")
+  department     String?
   notes          String?
   isActive       Boolean   @default(true) @map("is_active")
   createdAt      DateTime  @default(now()) @map("created_at")
@@ -1257,18 +1267,21 @@ model Reward {
 }
 
 model GiftCard {
-  id           String         @id @default(cuid())
-  customerId   String?        @map("customer_id")
-  code         String         @unique
-  balance      Decimal        @db.Decimal(18, 4)
-  initialValue Decimal        @map("initial_value") @db.Decimal(18, 4)
-  status       GiftCardStatus @default(ACTIVE)
-  expiresAt    DateTime?      @map("expires_at")
-  createdAt    DateTime       @default(now()) @map("created_at")
-  updatedAt    DateTime       @updatedAt @map("updated_at")
+  id             String         @id @default(cuid())
+  organizationId String         @map("organization_id")
+  customerId     String?        @map("customer_id")
+  code           String         @unique
+  balance        Decimal        @db.Decimal(18, 4)
+  initialValue   Decimal        @map("initial_value") @db.Decimal(18, 4)
+  status         GiftCardStatus @default(ACTIVE)
+  expiresAt      DateTime?      @map("expires_at")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
 
-  customer Customer? @relation(fields: [customerId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  customer     Customer?    @relation(fields: [customerId], references: [id])
 
+  @@index([organizationId])
   @@map("gift_cards")
 }
 
@@ -1286,8 +1299,11 @@ model DailySalesSummary {
   discountTotal Decimal  @default(0) @map("discount_total") @db.Decimal(18, 4)
   taxTotal      Decimal  @default(0) @map("tax_total") @db.Decimal(18, 4)
   cogsTotal     Decimal  @default(0) @map("cogs_total") @db.Decimal(18, 6)
-  cashTotal     Decimal  @default(0) @map("cash_total") @db.Decimal(18, 4)
-  cardTotal     Decimal  @default(0) @map("card_total") @db.Decimal(18, 4)
+  cashTotal      Decimal  @default(0) @map("cash_total") @db.Decimal(18, 4)
+  cardTotal      Decimal  @default(0) @map("card_total") @db.Decimal(18, 4)
+  corporateTotal Decimal  @default(0) @map("corporate_total") @db.Decimal(18, 4)
+  otherTotal     Decimal  @default(0) @map("other_total") @db.Decimal(18, 4)
+  tipTotal       Decimal  @default(0) @map("tip_total") @db.Decimal(18, 4)
   voidCount     Int      @default(0) @map("void_count")
   refundTotal   Decimal  @default(0) @map("refund_total") @db.Decimal(18, 4)
   drinkSales    Decimal  @default(0) @map("drink_sales") @db.Decimal(18, 4)
@@ -1354,6 +1370,52 @@ model EmployeeActivitySummary {
   @@unique([branchId, userId, businessDate])
   @@index([branchId, businessDate])
   @@map("employee_activity_summaries")
+}
+
+model HourlySalesSummary {
+  id           String   @id @default(cuid())
+  branchId     String   @map("branch_id")
+  businessDate DateTime @map("business_date") @db.Date
+  hour         Int
+  orderCount   Int      @default(0) @map("order_count")
+  netSales     Decimal  @default(0) @map("net_sales") @db.Decimal(18, 4)
+  refreshedAt  DateTime @default(now()) @map("refreshed_at")
+
+  branch Branch @relation(fields: [branchId], references: [id])
+
+  @@unique([branchId, businessDate, hour])
+  @@index([branchId, businessDate])
+  @@map("hourly_sales_summaries")
+}
+
+model OrderTypeSummary {
+  id           String    @id @default(cuid())
+  branchId     String    @map("branch_id")
+  businessDate DateTime  @map("business_date") @db.Date
+  orderType    OrderType @map("order_type")
+  orderCount   Int       @default(0) @map("order_count")
+  netSales     Decimal   @default(0) @map("net_sales") @db.Decimal(18, 4)
+  refreshedAt  DateTime  @default(now()) @map("refreshed_at")
+
+  branch Branch @relation(fields: [branchId], references: [id])
+
+  @@unique([branchId, businessDate, orderType])
+  @@index([branchId, businessDate])
+  @@map("order_type_summaries")
+}
+
+model OrderAggregationLedger {
+  id        String   @id @default(cuid())
+  orderId   String   @map("order_id")
+  action    String
+  dedupeKey String   @unique @map("dedupe_key")
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@map("order_aggregation_ledger")
 }
 
 // =============================================================================

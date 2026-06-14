@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { DailySalesReport, ProductSalesReportRow, QueueOrder } from '@qauto/shared-types';
+import type { DashboardAnalytics, ProductSalesReportRow, QueueOrder } from '@qauto/shared-types';
 import type { InventoryStockItem } from '@qauto/api-client';
 import {
   Alert,
@@ -17,14 +17,25 @@ import {
 } from '@qauto/ui';
 import { getApiClient, getBusinessDate, formatQar } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth-store';
+import {
+  SalesTrendChart,
+  HourlySalesChart,
+  PaymentMixChart,
+  CategoryMixChart,
+  TopProductsChart,
+  OrderTypeChart,
+  MarginGauge,
+} from '@/components/charts/DashboardCharts';
 
 export default function DashboardPage() {
   const branchId = useAuthStore((s) => s.branchId);
   const [businessDate, setBusinessDate] = useState(getBusinessDate());
-  const [sales, setSales] = useState<DailySalesReport | null>(null);
+  const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
   const [products, setProducts] = useState<ProductSalesReportRow[]>([]);
   const [queue, setQueue] = useState<QueueOrder[]>([]);
   const [stock, setStock] = useState<InventoryStockItem[]>([]);
+  const [unpaidCount, setUnpaidCount] = useState(0);
+  const [outstandingTotal, setOutstandingTotal] = useState('0.0000');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,16 +45,28 @@ export default function DashboardPage() {
     setError(null);
     try {
       const client = getApiClient();
-      const [salesData, productData, queueData, stockData] = await Promise.all([
-        client.getDailySalesReport(branchId, businessDate),
+      const [dashboardData, productData, queueData, lowStockData, unpaidData] = await Promise.all([
+        client.getDashboardAnalytics(branchId, businessDate, 7),
         client.getProductPerformance(branchId, businessDate),
         client.getOrderQueue(branchId),
-        client.getInventoryStock(branchId),
+        client.getLowStock(branchId),
+        client.getUnpaidOrdersReport(branchId),
       ]);
-      setSales(salesData);
+      setAnalytics(dashboardData);
       setProducts(productData);
       setQueue(queueData);
-      setStock(stockData.items);
+      setStock(
+        lowStockData.items.map((i) => ({
+          ingredientId: i.ingredientId,
+          name: i.name,
+          code: i.code,
+          isPackaging: false,
+          available: i.available,
+          uom: i.uom,
+        })),
+      );
+      setUnpaidCount(unpaidData.orderCount);
+      setOutstandingTotal(unpaidData.outstandingTotal);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load dashboard');
     } finally {
@@ -57,8 +80,10 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, [load]);
 
+  const kpis = analytics?.kpis;
   const queueBreakdown = useMemo(
     () => ({
+      pending: queue.filter((o) => o.status === 'PENDING_PAYMENT').length,
       paid: queue.filter((o) => o.status === 'PAID').length,
       inPrep: queue.filter((o) => o.status === 'IN_PREP').length,
       ready: queue.filter((o) => o.status === 'READY').length,
@@ -66,15 +91,7 @@ export default function DashboardPage() {
     [queue],
   );
 
-  const lowStock = useMemo(() => {
-    return stock
-      .filter((item) => !item.isPackaging)
-      .filter((item) => {
-        const qty = parseFloat(item.available);
-        return qty < 50;
-      })
-      .slice(0, 6);
-  }, [stock]);
+  const lowStock = useMemo(() => stock.slice(0, 6), [stock]);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -82,7 +99,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-ink">Dashboard</h1>
           <p className="mt-1 text-sm text-ink-muted">
-            Today&apos;s performance and live operations
+            Sales analytics, margins, and live operations
           </p>
         </div>
         <div className="w-full sm:w-48">
@@ -108,27 +125,94 @@ export default function DashboardPage() {
         ) : (
           <>
             <KpiCard
-              label="Gross sales"
-              value={formatQar(sales?.grossSales ?? '0')}
-              subtext={`${sales?.orderCount ?? 0} orders`}
-            />
-            <KpiCard
               label="Net sales"
-              value={formatQar(sales?.netSales ?? '0')}
-              subtext={`COGS ${formatQar(sales?.cogsTotal ?? '0')}`}
+              value={formatQar(kpis?.netSales ?? '0')}
+              subtext={`${kpis?.orderCount ?? 0} orders · avg ${formatQar(kpis?.avgTicket ?? '0')}`}
             />
             <KpiCard
-              label="Cash / Card"
-              value={formatQar(sales?.cashTotal ?? '0')}
-              subtext={`Card ${formatQar(sales?.cardTotal ?? '0')}`}
+              label="Gross margin"
+              value={`${kpis?.marginPct ?? '0'}%`}
+              subtext={`Food cost ${kpis?.foodCostPct ?? '0'}% · COGS ${formatQar(kpis?.cogsTotal ?? '0')}`}
             />
             <KpiCard
-              label="Drinks / Snacks"
-              value={formatQar(sales?.drinkSales ?? '0')}
-              subtext={`Snacks ${formatQar(sales?.snackSales ?? '0')}`}
+              label="Outstanding AR"
+              value={formatQar(outstandingTotal)}
+              subtext={`${unpaidCount} unpaid · refunds ${formatQar(kpis?.refundTotal ?? '0')}`}
+            />
+            <KpiCard
+              label="Discounts & tax"
+              value={formatQar(kpis?.discountTotal ?? '0')}
+              subtext={`Tax ${formatQar(kpis?.taxTotal ?? '0')} · voids ${kpis?.voidCount ?? 0}`}
             />
           </>
         )}
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2" padding="lg">
+          <CardHeader title="7-day sales trend" description="Net sales by business date" />
+          {loading ? (
+            <div className="h-[280px] animate-pulse rounded-lg bg-surface-sunken" />
+          ) : analytics?.trend.length ? (
+            <SalesTrendChart data={analytics.trend} formatValue={formatQar} />
+          ) : (
+            <EmptyState title="No trend data" description="Sales will appear after paid orders." />
+          )}
+        </Card>
+
+        <Card padding="lg">
+          <CardHeader title="Margin health" description="Today&apos;s profitability" />
+          {loading ? (
+            <div className="h-[280px] animate-pulse rounded-lg bg-surface-sunken" />
+          ) : kpis ? (
+            <MarginGauge marginPct={kpis.marginPct} foodCostPct={kpis.foodCostPct} />
+          ) : null}
+          {!loading && analytics?.categoryMix.length ? (
+            <div className="mt-2 border-t border-border pt-4">
+              <CategoryMixChart data={analytics.categoryMix} formatValue={formatQar} />
+            </div>
+          ) : null}
+        </Card>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card padding="lg">
+          <CardHeader title="Hourly sales" description={`Daypart breakdown · ${businessDate}`} />
+          {loading ? (
+            <div className="h-[260px] animate-pulse rounded-lg bg-surface-sunken" />
+          ) : (
+            <HourlySalesChart data={analytics?.hourly ?? []} formatValue={formatQar} />
+          )}
+        </Card>
+
+        <Card padding="lg">
+          <CardHeader title="Payment mix" description="Tender breakdown" />
+          {loading ? (
+            <div className="h-[260px] animate-pulse rounded-lg bg-surface-sunken" />
+          ) : (
+            <PaymentMixChart data={analytics?.paymentMix ?? []} formatValue={formatQar} />
+          )}
+        </Card>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card padding="lg">
+          <CardHeader title="Top products" description="Best sellers today" />
+          {loading ? (
+            <div className="h-[280px] animate-pulse rounded-lg bg-surface-sunken" />
+          ) : (
+            <TopProductsChart data={products} formatValue={formatQar} />
+          )}
+        </Card>
+
+        <Card padding="lg">
+          <CardHeader title="Order channels" description="Counter, takeaway, staff, comp" />
+          {loading ? (
+            <div className="h-[240px] animate-pulse rounded-lg bg-surface-sunken" />
+          ) : (
+            <OrderTypeChart data={analytics?.orderTypes ?? []} formatValue={formatQar} />
+          )}
+        </Card>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -139,7 +223,8 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-3">
               {[
-                { label: 'New (paid)', count: queueBreakdown.paid, variant: 'accent' as const },
+                { label: 'Unpaid', count: queueBreakdown.pending, variant: 'warning' as const },
+                { label: 'Paid', count: queueBreakdown.paid, variant: 'accent' as const },
                 { label: 'In prep', count: queueBreakdown.inPrep, variant: 'warning' as const },
                 { label: 'Ready', count: queueBreakdown.ready, variant: 'success' as const },
               ].map((row) => (
@@ -151,65 +236,16 @@ export default function DashboardPage() {
                   <Badge variant={row.variant}>{row.count}</Badge>
                 </div>
               ))}
-              {queue.length === 0 ? (
-                <p className="text-sm text-ink-muted">No active orders in queue</p>
-              ) : null}
             </div>
           )}
         </Card>
 
-        <Card className="lg:col-span-2">
-          <CardHeader title="Top sellers" description={`Business date ${businessDate}`} />
-          {loading ? (
-            <TableSkeleton rows={5} />
-          ) : products.length === 0 ? (
-            <EmptyState
-              title="No sales yet"
-              description="Paid orders will appear here once the day gets started."
-            />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b border-border text-ink-muted">
-                    <th className="pb-2 font-medium">Item</th>
-                    <th className="pb-2 font-medium">Qty</th>
-                    <th className="pb-2 font-medium">Sales</th>
-                    <th className="pb-2 font-medium">COGS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {products.slice(0, 8).map((row) => (
-                    <tr
-                      key={row.menuItemId}
-                      className="border-b border-border/60 transition-colors duration-150 last:border-0 hover:bg-surface-sunken/50"
-                    >
-                      <td className="py-2.5 font-medium text-ink">{row.menuItemName}</td>
-                      <td className="py-2.5 text-ink-secondary">{row.quantitySold}</td>
-                      <td className="py-2.5 text-ink-secondary">{formatQar(row.grossSales)}</td>
-                      <td className="py-2.5 text-ink-muted">{formatQar(row.cogsTotal)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader
-            title="Inventory alerts"
-            description="Ingredients below threshold"
-          />
+        <Card className="lg:col-span-1">
+          <CardHeader title="Inventory alerts" description="Below reorder point" />
           {loading ? (
             <TableSkeleton rows={4} />
           ) : lowStock.length === 0 ? (
-            <EmptyState
-              title="Stock levels healthy"
-              description="No ingredients are running low at this branch."
-            />
+            <EmptyState title="Stock healthy" description="All ingredients above threshold." />
           ) : (
             <div className="space-y-2">
               {lowStock.map((item) => (
@@ -230,15 +266,12 @@ export default function DashboardPage() {
           )}
         </Card>
 
-        <Card>
-          <CardHeader title="Active orders" description="Currently in bar queue" />
+        <Card className="lg:col-span-1">
+          <CardHeader title="Active orders" description="Kitchen queue snapshot" />
           {loading ? (
             <TableSkeleton rows={4} />
           ) : queue.length === 0 ? (
-            <EmptyState
-              title="Queue is clear"
-              description="New paid orders from POS will show up here in real time."
-            />
+            <EmptyState title="Queue clear" description="No active orders." />
           ) : (
             <div className="space-y-2">
               {queue.slice(0, 6).map((order) => (
@@ -247,7 +280,7 @@ export default function DashboardPage() {
                   className="flex items-center justify-between rounded-lg bg-surface-sunken px-3 py-2.5"
                 >
                   <div>
-                    <p className="text-sm font-medium text-ink">Order #{order.orderNumber}</p>
+                    <p className="text-sm font-medium text-ink">#{order.orderNumber}</p>
                     <p className="text-xs text-ink-muted">
                       {order.lines.map((l) => l.itemName).join(', ')}
                     </p>

@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PaymentMethodType } from '@prisma/client';
 
@@ -22,6 +22,19 @@ export class PayOrderDto {
   @IsOptional()
   @IsString()
   idempotencyKey?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  loyaltyPointsRedeem?: number;
+
+  @IsOptional()
+  @IsString()
+  rewardId?: string;
+
+  @IsOptional()
+  @IsString()
+  giftCardCode?: string;
 }
 
 export class VoidOrderDto {

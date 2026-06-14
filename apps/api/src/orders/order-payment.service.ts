@@ -6,28 +6,37 @@ import {
 } from '@nestjs/common';
 import { PaymentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { RecipeEngineService } from '../recipe/recipe-engine.service';
-import { FifoService } from '../inventory/fifo.service';
-import { EightySixService } from '../inventory/eighty-six.service';
-import { InsufficientStockError, LayerAllocation } from '../inventory/inventory.types';
+import { InsufficientStockError } from '../inventory/inventory.types';
 import { PayOrderDto, VoidOrderDto } from './dto/pay-order.dto';
 import { decimalToString } from '../common/utils/decimal.util';
 import { DomainEventsService } from '../events/domain-events.service';
 import { OrderQueueService } from './order-queue.service';
+import { OrderFulfillmentService } from './order-fulfillment.service';
 import { JobsService } from '../jobs/jobs.service';
 import { AuditService } from '../audit/audit.service';
+import { FifoService } from '../inventory/fifo.service';
+import { EightySixService } from '../inventory/eighty-six.service';
+import { LayerAllocation } from '../inventory/inventory.types';
+import { LoyaltyService } from '../loyalty/loyalty.service';
+import { GiftCardsService } from '../gift-cards/gift-cards.service';
+import { OrderDiscountService } from './order-discount.service';
+import { PRISMA_TX_OPTIONS } from '../prisma/transaction-options';
+import { DiscountScope, DiscountType } from '@prisma/client';
 
 @Injectable()
 export class OrderPaymentService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly recipeEngine: RecipeEngineService,
+    private readonly fulfillment: OrderFulfillmentService,
     private readonly fifo: FifoService,
     private readonly eightySix: EightySixService,
     private readonly domainEvents: DomainEventsService,
     private readonly orderQueue: OrderQueueService,
     private readonly jobs: JobsService,
     private readonly audit: AuditService,
+    private readonly loyalty: LoyaltyService,
+    private readonly giftCards: GiftCardsService,
+    private readonly orderDiscount: OrderDiscountService,
   ) {}
 
   async pay(orderId: string, organizationId: string, userId: string, dto: PayOrderDto) {
@@ -41,17 +50,82 @@ export class OrderPaymentService {
       }
     }
 
-    const order = await this.prisma.order.findFirst({
+    let order = await this.prisma.order.findFirst({
       where: { id: orderId, organizationId },
       include: {
         lines: { include: { modifiers: true } },
         branch: true,
+        payments: { where: { status: 'COMPLETED' } },
       },
     });
 
     if (!order) throw new NotFoundException('Order not found');
-    if (order.status !== 'DRAFT') throw new BadRequestException('Order is not payable');
+    const hasCompletedPayment = order.payments.some((p) => p.status === 'COMPLETED');
+    const isDraft = order.status === 'DRAFT';
+    const isPayLater = Boolean(order.deferredAt) && !hasCompletedPayment;
+
+    if (!isDraft && !isPayLater) {
+      throw new BadRequestException('Order is not payable');
+    }
     if (!order.lines.length) throw new BadRequestException('Order has no lines');
+
+    if (order.customerId && (dto.loyaltyPointsRedeem || dto.rewardId)) {
+      const customerId = order.customerId;
+      const orderIdForDiscount = order.id;
+      if (dto.rewardId) {
+        await this.prisma.$transaction(async (tx) => {
+          const { discountAmount } = await this.loyalty.redeemReward(
+            tx,
+            customerId,
+            orderIdForDiscount,
+            dto.rewardId!,
+          );
+          await tx.orderDiscount.deleteMany({ where: { orderId: orderIdForDiscount } });
+          await tx.orderDiscount.create({
+            data: {
+              orderId: orderIdForDiscount,
+              scope: DiscountScope.ORDER,
+              type: DiscountType.FIXED_AMOUNT,
+              value: discountAmount,
+              amount: discountAmount,
+              reason: 'Loyalty reward redemption',
+            },
+          });
+          await this.orderDiscount.recalculateForOrder(orderIdForDiscount, tx);
+        });
+      } else if (dto.loyaltyPointsRedeem) {
+        await this.prisma.$transaction(async (tx) => {
+          const discountAmount = await this.loyalty.redeemPoints(
+            tx,
+            customerId,
+            orderIdForDiscount,
+            dto.loyaltyPointsRedeem!,
+          );
+          await tx.orderDiscount.deleteMany({ where: { orderId: orderIdForDiscount } });
+          await tx.orderDiscount.create({
+            data: {
+              orderId: orderIdForDiscount,
+              scope: DiscountScope.ORDER,
+              type: DiscountType.FIXED_AMOUNT,
+              value: discountAmount,
+              amount: discountAmount,
+              reason: 'Loyalty points redemption',
+            },
+          });
+          await this.orderDiscount.recalculateForOrder(orderIdForDiscount, tx);
+        });
+      }
+      const refreshed = await this.prisma.order.findFirst({
+        where: { id: orderId, organizationId },
+        include: {
+          lines: { include: { modifiers: true } },
+          branch: true,
+          payments: { where: { status: 'COMPLETED' } },
+        },
+      });
+      if (!refreshed) throw new NotFoundException('Order not found');
+      order = refreshed;
+    }
 
     const paymentTotal = dto.payments.reduce(
       (acc, p) => acc.add(new Prisma.Decimal(p.amount)),
@@ -64,131 +138,138 @@ export class OrderPaymentService {
       );
     }
 
-    const lineBoms = await Promise.all(
-      order.lines.map(async (line) => {
-        const bom = await this.recipeEngine.resolveBom({
-          menuItemId: line.menuItemId,
-          sizeId: line.sizeId,
-          modifierIds: line.modifiers.map((m) => m.modifierId),
-          quantity: line.quantity,
-        });
-        return { line, bom };
-      }),
-    );
+    const isPayLaterCollection = isPayLater && !isDraft;
+    const consumedIngredientIds: string[] = [];
 
-    const allBomLines = lineBoms.flatMap(({ bom }) => bom.lines);
-    const shortages = await this.fifo.checkAvailability(order.branchId, allBomLines);
-
-    if (shortages.length) {
-      throw new InsufficientStockError(shortages);
-    }
-
-    const consumedIngredientIds = new Set<string>();
+    const resolveGiftCardRef = (payment: (typeof dto.payments)[number]) =>
+      payment.reference?.toUpperCase().startsWith('GC-')
+        ? payment.reference
+        : dto.giftCardCode && payment.method === 'OTHER'
+          ? dto.giftCardCode
+          : null;
 
     try {
-      await this.prisma.$transaction(async (tx) => {
-        let orderCogs = new Prisma.Decimal(0);
+      if (isPayLaterCollection) {
+        await this.prisma.$transaction(async (tx) => {
+          for (const payment of dto.payments) {
+            const giftCardRef = resolveGiftCardRef(payment);
+            if (giftCardRef) {
+              await this.giftCards.redeem(
+                tx,
+                giftCardRef,
+                new Prisma.Decimal(payment.amount),
+                order.id,
+              );
+            }
 
-        for (const { line, bom } of lineBoms) {
-          const consumption = await this.fifo.consume(
-            tx,
-            order.branchId,
-            bom.lines,
-            { type: 'order_line', id: line.id },
-            userId,
-          );
-
-          orderCogs = orderCogs.add(consumption.totalCost);
-          bom.lines.forEach((l) => consumedIngredientIds.add(l.ingredientId));
-
-          const snapshot = await tx.orderLineBomSnapshot.create({
-            data: {
-              orderLineId: line.id,
-              recipeId: bom.recipeId,
-              recipeVersion: bom.recipeVersion,
-              totalCogs: consumption.totalCost,
-            },
-          });
-
-          const allocationsByIngredient = this.groupAllocations(consumption.allocations);
-
-          for (const bomLine of bom.lines) {
-            const lineAllocations = allocationsByIngredient.get(bomLine.ingredientId) ?? [];
-            const extendedCost = lineAllocations.reduce(
-              (acc, a) => acc.add(a.extendedCost),
-              new Prisma.Decimal(0),
-            );
-
-            const snapshotLine = await tx.orderLineBomSnapshotLine.create({
+            await tx.payment.create({
               data: {
-                snapshotId: snapshot.id,
-                ingredientId: bomLine.ingredientId,
-                ingredientName: bomLine.ingredientName,
-                quantity: bomLine.quantity,
-                uomId: bomLine.uomId,
-                extendedCost,
+                orderId: order.id,
+                method: payment.method,
+                status: PaymentStatus.COMPLETED,
+                amount: payment.amount,
+                reference: giftCardRef ?? payment.reference,
+                idempotencyKey: dto.idempotencyKey,
+                processedById: userId,
+                processedAt: new Date(),
               },
             });
-
-            for (const allocation of lineAllocations) {
-              await tx.orderLineLayerAllocation.create({
-                data: {
-                  snapshotLineId: snapshotLine.id,
-                  layerId: allocation.layerId,
-                  ingredientId: allocation.ingredientId,
-                  quantity: allocation.quantity,
-                  unitCost: allocation.unitCost,
-                  extendedCost: allocation.extendedCost,
-                },
-              });
-            }
           }
 
-          await tx.orderLine.update({
-            where: { id: line.id },
-            data: { lineCogs: consumption.totalCost },
-          });
-        }
+          const paidAt = new Date();
+          const businessDate = this.resolveBusinessDate(
+            paidAt,
+            order.branch.businessDayCutoverHour,
+          );
 
-        for (const payment of dto.payments) {
-          await tx.payment.create({
+          await tx.order.update({
+            where: { id: order.id },
+            data: {
+              ...(order.status === 'PENDING_PAYMENT' ? { status: 'PAID' as const } : {}),
+              paidAt,
+              businessDate,
+            },
+          });
+
+          await tx.receipt.create({
             data: {
               orderId: order.id,
-              method: payment.method,
-              status: PaymentStatus.COMPLETED,
-              amount: payment.amount,
-              reference: payment.reference,
-              idempotencyKey: dto.idempotencyKey,
-              processedById: userId,
-              processedAt: new Date(),
+              content: {
+                orderNumber: order.orderNumber,
+                total: decimalToString(order.total),
+                cogsTotal: decimalToString(order.cogsTotal),
+                paidAt: new Date().toISOString(),
+                payLater: true,
+              },
             },
           });
-        }
 
-        const businessDate = this.resolveBusinessDate(order.branch.businessDayCutoverHour);
+          if (order.customerId) {
+            await this.loyalty.earnOnPayment(tx, order.customerId, order.id, order.total);
+          }
+        }, PRISMA_TX_OPTIONS);
+      } else {
+        const { orderCogs, consumedIngredientIds: consumed } = await this.fulfillment.fulfillOrder(
+          order,
+          userId,
+        );
+        consumedIngredientIds.push(...consumed);
 
-        await tx.order.update({
-          where: { id: order.id },
-          data: {
-            status: 'PAID',
-            cogsTotal: orderCogs,
-            paidAt: new Date(),
-            businessDate,
-          },
-        });
+        await this.prisma.$transaction(async (tx) => {
+          for (const payment of dto.payments) {
+            const giftCardRef = resolveGiftCardRef(payment);
+            if (giftCardRef) {
+              await this.giftCards.redeem(
+                tx,
+                giftCardRef,
+                new Prisma.Decimal(payment.amount),
+                order.id,
+              );
+            }
 
-        await tx.receipt.create({
-          data: {
-            orderId: order.id,
-            content: {
-              orderNumber: order.orderNumber,
-              total: decimalToString(order.total),
-              cogsTotal: decimalToString(orderCogs),
-              paidAt: new Date().toISOString(),
+            await tx.payment.create({
+              data: {
+                orderId: order.id,
+                method: payment.method,
+                status: PaymentStatus.COMPLETED,
+                amount: payment.amount,
+                reference: giftCardRef ?? payment.reference,
+                idempotencyKey: dto.idempotencyKey,
+                processedById: userId,
+                processedAt: new Date(),
+              },
+            });
+          }
+
+          const businessDate = this.resolveBusinessDate(order.branch.businessDayCutoverHour);
+
+          await tx.order.update({
+            where: { id: order.id },
+            data: {
+              status: 'PAID',
+              cogsTotal: orderCogs,
+              paidAt: new Date(),
+              businessDate,
             },
-          },
-        });
-      });
+          });
+
+          await tx.receipt.create({
+            data: {
+              orderId: order.id,
+              content: {
+                orderNumber: order.orderNumber,
+                total: decimalToString(order.total),
+                cogsTotal: decimalToString(orderCogs),
+                paidAt: new Date().toISOString(),
+              },
+            },
+          });
+
+          if (order.customerId) {
+            await this.loyalty.earnOnPayment(tx, order.customerId, order.id, order.total);
+          }
+        }, PRISMA_TX_OPTIONS);
+      }
     } catch (error) {
       if (error instanceof InsufficientStockError) throw error;
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -196,11 +277,6 @@ export class OrderPaymentService {
       }
       throw error;
     }
-
-    await this.eightySix.propagateAfterConsumption(
-      order.branchId,
-      Array.from(consumedIngredientIds),
-    );
 
     const paidOrder = await this.prisma.order.findFirst({
       where: { id: order.id, organizationId },
@@ -213,10 +289,12 @@ export class OrderPaymentService {
     });
 
     if (paidOrder) {
-      this.domainEvents.emitOrderPaid(
-        paidOrder.branchId,
-        this.orderQueue.buildPaidEvent(paidOrder),
-      );
+      if (isDraft) {
+        this.domainEvents.emitOrderPaid(
+          paidOrder.branchId,
+          this.orderQueue.buildPaidEvent(paidOrder),
+        );
+      }
       await this.jobs.enqueueOrderAggregation(paidOrder.id, 'order_paid');
       await this.audit.log({
         organizationId,
@@ -249,7 +327,7 @@ export class OrderPaymentService {
     });
 
     if (!order) throw new NotFoundException('Order not found');
-    if (!['PAID', 'IN_PREP', 'READY'].includes(order.status)) {
+    if (!['PENDING_PAYMENT', 'PAID', 'IN_PREP', 'READY'].includes(order.status)) {
       throw new BadRequestException('Order cannot be voided');
     }
 
@@ -289,7 +367,7 @@ export class OrderPaymentService {
           voidedAt: new Date(),
         },
       });
-    });
+    }, PRISMA_TX_OPTIONS);
 
     for (const ingredientId of ingredientIds) {
       await this.eightySix.propagateAfterRestock(order.branchId, ingredientId);
@@ -314,22 +392,18 @@ export class OrderPaymentService {
     return { success: true, orderId: order.id, status: 'VOIDED' };
   }
 
-  private groupAllocations(allocations: LayerAllocation[]) {
-    const map = new Map<string, LayerAllocation[]>();
-    for (const allocation of allocations) {
-      const list = map.get(allocation.ingredientId) ?? [];
-      list.push(allocation);
-      map.set(allocation.ingredientId, list);
+  private resolveBusinessDate(from: Date | number, cutoverHour?: number): Date {
+    if (typeof from === 'number') {
+      const hour = from;
+      const now = new Date();
+      const business = new Date(now);
+      if (now.getHours() < hour) business.setDate(business.getDate() - 1);
+      business.setHours(0, 0, 0, 0);
+      return business;
     }
-    return map;
-  }
-
-  private resolveBusinessDate(cutoverHour: number): Date {
-    const now = new Date();
-    const business = new Date(now);
-    if (now.getHours() < cutoverHour) {
-      business.setDate(business.getDate() - 1);
-    }
+    const business = new Date(from);
+    const cutover = cutoverHour ?? 4;
+    if (from.getHours() < cutover) business.setDate(business.getDate() - 1);
     business.setHours(0, 0, 0, 0);
     return business;
   }

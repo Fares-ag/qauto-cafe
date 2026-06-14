@@ -22,6 +22,7 @@ type PO = {
   supplier: { name: string };
   lines: Array<{
     id: string;
+    ingredientId: string;
     ingredientName: string;
     quantityOrdered: string;
     quantityReceived: string;
@@ -110,6 +111,28 @@ export default function ProcurementPage() {
       load();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed', 'error');
+    }
+  }
+
+  async function editPo(po: PO) {
+    const line = po.lines[0];
+    if (!line) return;
+    const qty = prompt('New quantity ordered', line.quantityOrdered);
+    const cost = prompt('New unit cost', line.unitCost);
+    if (!qty || !cost) return;
+    try {
+      const client = getApiClient();
+      await client.updatePurchaseOrder(po.id, {
+        lines: po.lines.map((l) =>
+          l.id === line.id
+            ? { ingredientId: l.ingredientId, quantityOrdered: qty, unitCost: cost }
+            : { ingredientId: l.ingredientId, quantityOrdered: l.quantityOrdered, unitCost: l.unitCost },
+        ),
+      });
+      toast('PO updated', 'success');
+      load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Update failed', 'error');
     }
   }
 
@@ -209,7 +232,7 @@ export default function ProcurementPage() {
               onChange={(e) => setNewPo((p) => ({ ...p, quantity: e.target.value }))}
             />
             <Input
-              label="Unit cost"
+              label="Unit cost (QAR)"
               value={newPo.unitCost}
               onChange={(e) => setNewPo((p) => ({ ...p, unitCost: e.target.value }))}
             />
@@ -242,15 +265,20 @@ export default function ProcurementPage() {
                 <ul className="mt-2 text-sm text-ink-secondary">
                   {po.lines.map((l) => (
                     <li key={l.id}>
-                      {l.ingredientName}: {l.quantityReceived}/{l.quantityOrdered} @ {l.unitCost}
+                      {l.ingredientName}: {l.quantityReceived}/{l.quantityOrdered} @ {l.unitCost} QAR
                     </li>
                   ))}
                 </ul>
                 <div className="mt-3 flex gap-2">
                   {po.status === 'DRAFT' ? (
-                    <Button variant="secondary" size="sm" onClick={() => sendPo(po.id)}>
-                      Send
-                    </Button>
+                    <>
+                      <Button variant="ghost" size="sm" onClick={() => editPo(po)}>
+                        Edit
+                      </Button>
+                      <Button variant="secondary" size="sm" onClick={() => sendPo(po.id)}>
+                        Send
+                      </Button>
+                    </>
                   ) : null}
                   {['SENT', 'PARTIAL'].includes(po.status) ? (
                     <Button variant="primary" size="sm" onClick={() => receivePo(po)}>

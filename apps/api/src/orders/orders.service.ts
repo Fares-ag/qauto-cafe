@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto, OrderLineInputDto, UpdateOrderLinesDto } from './dto/order.dto';
 import { decimalToString } from '../common/utils/decimal.util';
+import { OrderDiscountService } from './order-discount.service';
 
 interface ResolvedLine {
   menuItemId: string;
@@ -26,25 +27,37 @@ interface ResolvedLine {
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly orderDiscountService: OrderDiscountService,
+  ) {}
 
   async create(organizationId: string, userId: string, dto: CreateOrderDto) {
     await this.assertBranch(organizationId, dto.branchId);
 
-    const orderNumber = await this.nextOrderNumber(dto.branchId);
+    const order = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dto.branchId}))`;
 
-    const order = await this.prisma.order.create({
-      data: {
-        organizationId,
-        branchId: dto.branchId,
-        terminalId: dto.terminalId,
-        shiftId: dto.shiftId,
-        orderNumber,
-        orderType: dto.orderType ?? 'COUNTER',
-        customerName: dto.customerName,
-        status: 'DRAFT',
-        createdById: userId,
-      },
+      const last = await tx.order.findFirst({
+        where: { branchId: dto.branchId },
+        orderBy: { orderNumber: 'desc' },
+        select: { orderNumber: true },
+      });
+      const orderNumber = (last?.orderNumber ?? 0) + 1;
+
+      return tx.order.create({
+        data: {
+          organizationId,
+          branchId: dto.branchId,
+          terminalId: dto.terminalId,
+          shiftId: dto.shiftId,
+          orderNumber,
+          orderType: dto.orderType ?? 'COUNTER',
+          customerName: dto.customerName,
+          status: 'DRAFT',
+          createdById: userId,
+        },
+      });
     });
 
     if (dto.lines?.length) {
@@ -96,6 +109,10 @@ export class OrdersService {
         total: decimalToString(order.total),
         lineCount: order.lines.length,
         createdByName: `${order.createdBy.firstName} ${order.createdBy.lastName}`,
+        customerName: order.customerName,
+        customerDepartment: order.customerDepartment,
+        deferredAt: order.deferredAt?.toISOString() ?? null,
+        paymentDueDate: order.paymentDueDate?.toISOString().slice(0, 10) ?? null,
         paidAt: order.paidAt?.toISOString() ?? null,
         createdAt: order.createdAt.toISOString(),
       })),
@@ -149,15 +166,20 @@ export class OrdersService {
         }
       }
 
-      await tx.order.update({
-        where: { id: orderId },
-        data: {
-          subtotal: totals.subtotal,
-          discountTotal: totals.discountTotal,
-          taxTotal: totals.taxTotal,
-          total: totals.total,
-        },
-      });
+      const discountCount = await tx.orderDiscount.count({ where: { orderId } });
+      if (discountCount > 0) {
+        await this.orderDiscountService.recalculateForOrder(orderId, tx);
+      } else {
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            subtotal: totals.subtotal,
+            discountTotal: totals.discountTotal,
+            taxTotal: totals.taxTotal,
+            total: totals.total,
+          },
+        });
+      }
     });
 
     return this.findOne(orderId, organizationId);
@@ -171,6 +193,7 @@ export class OrdersService {
           orderBy: { sortOrder: 'asc' },
           include: { modifiers: true },
         },
+        discounts: true,
       },
     });
 
@@ -205,16 +228,6 @@ export class OrdersService {
     if (!branch) {
       throw new NotFoundException('Branch not found');
     }
-  }
-
-  private async nextOrderNumber(branchId: string): Promise<number> {
-    const last = await this.prisma.order.findFirst({
-      where: { branchId },
-      orderBy: { orderNumber: 'desc' },
-      select: { orderNumber: true },
-    });
-
-    return (last?.orderNumber ?? 0) + 1;
   }
 
   private async resolveLine(branchId: string, input: OrderLineInputDto, sortOrder: number): Promise<ResolvedLine> {
@@ -328,12 +341,24 @@ export class OrdersService {
     status: string;
     orderType: string;
     customerName: string | null;
+    customerDepartment?: string | null;
+    deferredAt?: Date | null;
+    paymentDueDate?: Date | null;
     subtotal: Prisma.Decimal;
     discountTotal: Prisma.Decimal;
     taxTotal: Prisma.Decimal;
     total: Prisma.Decimal;
     createdAt: Date;
     updatedAt: Date;
+    discounts?: Array<{
+      id: string;
+      scope: string;
+      type: string;
+      value: Prisma.Decimal;
+      amount: Prisma.Decimal;
+      reason: string | null;
+      orderLineId: string | null;
+    }>;
     lines: Array<{
       id: string;
       menuItemId: string;
@@ -361,13 +386,19 @@ export class OrdersService {
       orderNumber: order.orderNumber,
       status: order.status,
       orderType: order.orderType,
-      customerName: order.customerName,
-      subtotal: decimalToString(order.subtotal),
+    customerName: order.customerName,
+    customerDepartment: order.customerDepartment,
+    deferredAt: order.deferredAt?.toISOString() ?? null,
+    paymentDueDate: order.paymentDueDate?.toISOString().slice(0, 10) ?? null,
+    subtotal: decimalToString(order.subtotal),
       discountTotal: decimalToString(order.discountTotal),
       taxTotal: decimalToString(order.taxTotal),
       total: decimalToString(order.total),
       createdAt: order.createdAt.toISOString(),
       updatedAt: order.updatedAt.toISOString(),
+      discounts: order.discounts
+        ? this.orderDiscountService.serializeDiscounts(order.discounts)
+        : [],
       lines: order.lines.map((line) => ({
         id: line.id,
         menuItemId: line.menuItemId,

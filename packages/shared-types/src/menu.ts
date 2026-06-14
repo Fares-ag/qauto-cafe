@@ -48,6 +48,18 @@ export interface MenuCatalog {
   categories: MenuCategory[];
 }
 
+export type OrderType = 'COUNTER' | 'TAKEAWAY' | 'STAFF' | 'COMP';
+
+export interface OrderDiscount {
+  id: string;
+  scope: 'LINE' | 'ORDER';
+  type: 'PERCENTAGE' | 'FIXED_AMOUNT';
+  value: string;
+  amount: string;
+  reason: string | null;
+  orderLineId: string | null;
+}
+
 export interface OrderLineModifier {
   id: string;
   modifierId: string;
@@ -76,8 +88,11 @@ export interface Order {
   branchId: string;
   orderNumber: number;
   status: string;
-  orderType: string;
+  orderType: OrderType;
   customerName: string | null;
+  customerDepartment?: string | null;
+  deferredAt?: string | null;
+  paymentDueDate?: string | null;
   subtotal: string;
   discountTotal: string;
   taxTotal: string;
@@ -86,7 +101,24 @@ export interface Order {
   updatedAt: string;
   cogsTotal?: string;
   paidAt?: string;
+  discounts?: OrderDiscount[];
   lines: OrderLine[];
+}
+
+export interface UnpaidOrdersReport {
+  branchId: string;
+  orderCount: number;
+  outstandingTotal: string;
+  orders: Array<{
+    id: string;
+    orderNumber: number;
+    status: string;
+    customerName: string | null;
+    customerDepartment: string | null;
+    total: string;
+    deferredAt: string | null;
+    paymentDueDate: string | null;
+  }>;
 }
 
 export interface PayOrderResponse {

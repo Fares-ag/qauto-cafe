@@ -25,9 +25,9 @@ export function PinPad({
         {[0, 1, 2, 3, 4, 5].map((i) => (
           <div
             key={i}
-            className={`h-2.5 w-2.5 rounded-full border transition-colors duration-150 ${
+            className={`rounded-full border transition-colors duration-150 ${
               pin[i] ? 'border-brand bg-brand' : 'border-border-strong bg-surface-sunken'
-            }`}
+            } ${pin[i] ? 'h-3.5 w-3.5' : 'h-3 w-3'}`}
           />
         ))}
       </div>

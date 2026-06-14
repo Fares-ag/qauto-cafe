@@ -1,7 +1,7 @@
 import { IsEnum, IsNotEmpty, IsString } from 'class-validator';
 import { OrderStatus } from '@prisma/client';
 
-const QUEUE_STATUSES: OrderStatus[] = ['PAID', 'IN_PREP', 'READY'];
+const QUEUE_STATUSES: OrderStatus[] = ['PENDING_PAYMENT', 'PAID', 'IN_PREP', 'READY'];
 
 export class UpdateOrderStatusDto {
   @IsEnum(OrderStatus)

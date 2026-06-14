@@ -2,18 +2,27 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import cookieParser from 'cookie-parser';
-import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AppModule } from './app.module';
 import { ProblemDetailsFilter } from './common/filters/problem-details.filter';
+import { validateProductionConfig } from './config/validate-config';
+import { applySecurityMiddleware } from './config/security';
+import { RedisIoAdapter } from './ws/redis-io.adapter';
 
 async function bootstrap() {
+  validateProductionConfig();
+
   const app = await NestFactory.create(AppModule);
 
   const config = app.get(ConfigService);
   const port = config.get<number>('PORT', 3001);
   const corsOrigin = config.get<string>('CORS_ORIGIN', 'http://localhost:3000');
 
-  app.useWebSocketAdapter(new IoAdapter(app));
+  applySecurityMiddleware(app);
+
+  const redisIoAdapter = new RedisIoAdapter(app, config);
+  await redisIoAdapter.connectToRedis();
+  app.useWebSocketAdapter(redisIoAdapter);
+
   app.setGlobalPrefix('api/v1');
   app.use(cookieParser());
   app.enableCors({
@@ -29,8 +38,8 @@ async function bootstrap() {
   );
   app.useGlobalFilters(new ProblemDetailsFilter());
 
-  await app.listen(port);
-  console.log(`API running on http://localhost:${port}/api/v1`);
+  await app.listen(port, '0.0.0.0');
+  console.log(`API running on http://0.0.0.0:${port}/api/v1`);
 }
 
 bootstrap();
