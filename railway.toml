@@ -7,6 +7,7 @@ dockerfilePath = "apps/api/Dockerfile"
 watchPatterns = ["apps/api/**", "packages/shared-types/**", "prisma/**", "scripts/**"]
 
 [deploy]
+startCommand = "sh scripts/docker-api-entrypoint.sh"
 healthcheckPath = "/api/v1/health/live"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
