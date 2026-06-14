@@ -4,6 +4,7 @@ dist
 .next
 .env
 .env.local
+deploy/.railway-api.env.local
 *.log
 coverage
 .DS_Store
