@@ -2,19 +2,24 @@
 
 FROM node:20-alpine AS deps
 WORKDIR /app
+# Railway sets NODE_ENV=production during build; devDependencies (@nestjs/cli) are required to compile.
+ENV NODE_ENV=development
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
 COPY packages/shared-types/package.json packages/shared-types/
 COPY prisma ./prisma
-RUN npm ci --workspace=@qauto/api --include-workspace-root
+RUN npm ci --workspace=@qauto/api --include-workspace-root --include=dev
 
 FROM node:20-alpine AS builder
 WORKDIR /app
+ENV NODE_ENV=development
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run db:generate
 RUN npm run build --workspace=@qauto/shared-types
 RUN npm run build --workspace=@qauto/api
+# Verify compiled entrypoint exists before copying to runner
+RUN test -f apps/api/dist/main.js
 
 FROM node:20-alpine AS runner
 WORKDIR /app

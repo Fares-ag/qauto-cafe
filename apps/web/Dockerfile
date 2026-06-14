@@ -2,15 +2,17 @@
 
 FROM node:20-alpine AS deps
 WORKDIR /app
+ENV NODE_ENV=development
 COPY package.json package-lock.json ./
 COPY apps/web/package.json apps/web/
 COPY packages/shared-types/package.json packages/shared-types/
 COPY packages/api-client/package.json packages/api-client/
 COPY packages/ui/package.json packages/ui/
-RUN npm ci --workspace=@qauto/web --include-workspace-root
+RUN npm ci --workspace=@qauto/web --include-workspace-root --include=dev
 
 FROM node:20-alpine AS builder
 WORKDIR /app
+ENV NODE_ENV=development
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ARG NEXT_PUBLIC_API_URL=/api/v1

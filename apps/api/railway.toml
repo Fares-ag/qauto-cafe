@@ -1,5 +1,5 @@
-# Default Railway config — points at the API (NestJS backend).
-# For a separate web service, set Config file path to apps/web/railway.toml in Railway settings.
+# Railway config for the API service.
+# In Railway → @qauto/api → Settings → Config file path: apps/api/railway.toml
 
 [build]
 builder = "DOCKERFILE"
