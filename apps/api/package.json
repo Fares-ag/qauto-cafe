@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "prebuild": "npm run db:generate --prefix ../.. && npm run build --workspace=@qauto/shared-types --prefix ../..",
     "build": "tsc -p tsconfig.build.json",
+    "prestart": "npx prisma migrate deploy --schema ../../prisma/schema.prisma",
     "dev": "nest start --watch",
     "start": "node dist/main",
     "start:prod": "node dist/main",

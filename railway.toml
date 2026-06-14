@@ -5,6 +5,8 @@
 builder = "DOCKERFILE"
 dockerfilePath = "apps/api/Dockerfile"
 watchPatterns = ["apps/api/**", "packages/shared-types/**", "prisma/**", "scripts/**"]
+# Fallback if dashboard forces Railpack instead of Dockerfile:
+buildCommand = "npm run railway-api-build"
 
 [deploy]
 startCommand = "sh scripts/docker-api-entrypoint.sh"
