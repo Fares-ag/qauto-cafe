@@ -36,6 +36,7 @@ export class OrderQueueService {
         },
       },
       orderBy: [{ paidAt: 'asc' }, { deferredAt: 'asc' }, { orderNumber: 'asc' }],
+      take: 100,
     });
 
     return orders.map((order) => this.serializeQueueOrder(order));

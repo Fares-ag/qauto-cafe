@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiError } from '@qauto/api-client';
 import type { CartLineInput, MenuCatalogItem, OrderType, StockShortageError } from '@qauto/shared-types';
@@ -10,11 +11,20 @@ import { withAuth } from '@/lib/api';
 import { ensureTerminal } from '@/lib/terminal';
 import { printReceipt } from '@/lib/print-receipt';
 import { MenuGrid } from '@/components/MenuGrid';
-import { ModifierSheet } from '@/components/ModifierSheet';
 import { CartPanel } from '@/components/CartPanel';
-import { SplitPaySheet, type SplitPaymentRow } from '@/components/SplitPaySheet';
 import type { CustomerOption } from '@/components/CustomerAutocomplete';
+import type { SplitPaymentRow } from '@/components/SplitPaySheet';
 import { getCategoryIcon } from '@/lib/navigation';
+
+const ModifierSheet = dynamic(
+  () => import('@/components/ModifierSheet').then((m) => m.ModifierSheet),
+  { ssr: false },
+);
+
+const SplitPaySheet = dynamic(
+  () => import('@/components/SplitPaySheet').then((m) => m.SplitPaySheet),
+  { ssr: false },
+);
 
 const ORDER_TYPES: { value: OrderType; label: string }[] = [
   { value: 'COUNTER', label: 'Counter' },
@@ -74,33 +84,41 @@ export default function SellPage() {
 
   useEffect(() => {
     if (!branchId) return;
-    withAuth(async (client) => {
-      const id = await ensureTerminal(client, branchId, 'POS');
-      setPosTerminalId(id);
-      setTerminalReady(true);
-    }).catch((err) => {
-      setError(err instanceof Error ? err.message : 'Failed to initialize POS terminal');
-    });
-  }, [branchId, setPosTerminalId]);
 
-  const loadShift = useCallback(async () => {
-    if (!branchId || !terminalReady) return;
+    let cancelled = false;
     setShiftLoading(true);
-    try {
-      const shift = await withAuth((client) =>
-        client.getCurrentShift(branchId, posTerminalId ?? undefined),
-      );
-      setShift(shift);
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Failed to load shift', 'error');
-    } finally {
-      setShiftLoading(false);
-    }
-  }, [branchId, posTerminalId, terminalReady, setShift, toast]);
+    setTerminalReady(false);
 
-  useEffect(() => {
-    if (terminalReady && branchId) loadShift();
-  }, [terminalReady, branchId, loadShift]);
+    withAuth(async (client) => {
+      const terminalId = await ensureTerminal(client, branchId, 'POS');
+      if (cancelled) return;
+
+      setPosTerminalId(terminalId);
+      setTerminalReady(true);
+
+      const [catalogData, shift] = await Promise.all([
+        client.getMenuCatalog(branchId),
+        client.getCurrentShift(branchId, terminalId),
+      ]);
+      if (cancelled) return;
+
+      setCatalog(catalogData);
+      setActiveCategoryId(catalogData.categories[0]?.id ?? null);
+      setShift(shift);
+    })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to initialize POS');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setShiftLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [branchId, setPosTerminalId, setCatalog, setShift]);
 
   const loadCatalog = useCallback(async () => {
     if (!branchId) return;
@@ -122,14 +140,6 @@ export default function SellPage() {
     setOrder(created);
     return created;
   }, [order, branchId, posTerminalId, shiftId, orderType, setOrder]);
-
-  useEffect(() => {
-    if (branchId && currentShift) {
-      loadCatalog().catch((err) =>
-        setError(err instanceof Error ? err.message : 'Failed to load menu'),
-      );
-    }
-  }, [branchId, currentShift, loadCatalog]);
 
   const activeCategory = useMemo(
     () => catalog?.categories.find((c) => c.id === activeCategoryId) ?? catalog?.categories[0],

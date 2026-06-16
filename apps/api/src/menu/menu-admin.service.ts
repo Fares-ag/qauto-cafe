@@ -1,8 +1,10 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { CacheService } from '../cache/cache.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { decimalToString } from '../common/utils/decimal.util';
+import { menuCatalogCacheKey } from './menu.service';
 import {
   CreateMenuCategoryDto,
   CreateMenuItemDto,
@@ -22,7 +24,21 @@ export class MenuAdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly cache: CacheService,
   ) {}
+
+  private async bustCatalog(branchId?: string, organizationId?: string) {
+    if (branchId) {
+      await this.cache.del(menuCatalogCacheKey(branchId));
+      return;
+    }
+    if (!organizationId) return;
+    const branches = await this.prisma.branch.findMany({
+      where: { organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    await this.cache.delMany(branches.map((b) => menuCatalogCacheKey(b.id)));
+  }
 
   async listItems(organizationId: string, branchId: string) {
     const branch = await this.prisma.branch.findFirst({
@@ -117,6 +133,8 @@ export class MenuAdminService {
       afterState: { is86: updated.is86, isAvailable: updated.isAvailable },
     });
 
+    await this.bustCatalog(branchId);
+
     return {
       menuItemId,
       branchId,
@@ -154,6 +172,7 @@ export class MenuAdminService {
       entityId: category.id,
       afterState: { name: dto.name },
     });
+    await this.bustCatalog(undefined, organizationId);
     return { id: category.id, name: category.name, sortOrder: category.sortOrder, isActive: true };
   }
 
@@ -180,6 +199,7 @@ export class MenuAdminService {
       entityId: id,
       afterState: { name: updated.name },
     });
+    await this.bustCatalog(undefined, organizationId);
     return { id: updated.id, name: updated.name, sortOrder: updated.sortOrder, isActive: updated.isActive };
   }
 
@@ -193,6 +213,7 @@ export class MenuAdminService {
       entityType: 'menu_category',
       entityId: id,
     });
+    await this.bustCatalog(undefined, organizationId);
     return { id, deleted: true };
   }
 
@@ -226,6 +247,7 @@ export class MenuAdminService {
       afterState: { name: dto.name, code: dto.code },
     });
 
+    await this.bustCatalog(undefined, organizationId);
     return this.serializeItem(item);
   }
 
@@ -255,6 +277,7 @@ export class MenuAdminService {
       afterState: { name: updated.name },
     });
 
+    await this.bustCatalog(undefined, organizationId);
     return this.serializeItem(updated);
   }
 
@@ -271,6 +294,7 @@ export class MenuAdminService {
       entityType: 'menu_item',
       entityId: id,
     });
+    await this.bustCatalog(undefined, organizationId);
     return { id, deleted: true };
   }
 

@@ -57,10 +57,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!branchId || !user) return;
+    if (pathname === '/dashboard' || pathname === '/orders' || pathname === '/kitchen') return;
+
     loadBadges();
-    const interval = setInterval(loadBadges, 30000);
+    const interval = setInterval(loadBadges, 60000);
     return () => clearInterval(interval);
-  }, [branchId, user, loadBadges]);
+  }, [branchId, user, loadBadges, pathname]);
 
   const navGroups = useMemo(
     () =>

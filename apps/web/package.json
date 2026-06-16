@@ -6,6 +6,7 @@
     "dev": "next dev --port 3000 --turbo",
     "dev:webpack": "next dev --port 3000",
     "build": "next build",
+    "build:analyze": "next build",
     "start": "next start --port 3000",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test"
@@ -23,6 +24,7 @@
     "zustand": "^5.0.5"
   },
   "devDependencies": {
+    "@next/bundle-analyzer": "^15.3.3",
     "@playwright/test": "^1.60.0",
     "@types/node": "^22.15.30",
     "@types/react": "^19.1.6",

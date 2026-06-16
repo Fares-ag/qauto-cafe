@@ -9,7 +9,7 @@ const nextConfig: NextConfig = {
   transpilePackages: ['@qauto/shared-types', '@qauto/api-client', '@qauto/ui'],
   outputFileTracingRoot: path.join(__dirname, '../..'),
   experimental: {
-    optimizePackageImports: ['@qauto/ui'],
+    optimizePackageImports: ['@qauto/ui', 'lucide-react', 'recharts'],
   },
   async rewrites() {
     return [
@@ -37,4 +37,8 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+const withBundleAnalyzer = require('@next/bundle-analyzer')({
+  enabled: process.env.ANALYZE === 'true',
+});
+
+export default withBundleAnalyzer(nextConfig);
