@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { SuppliersService } from './suppliers.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import {
@@ -6,6 +6,7 @@ import {
   CreateSupplierDto,
   ReceivePurchaseOrderDto,
   UpdatePurchaseOrderDto,
+  UpdateSupplierDto,
 } from './dto/procurement.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -21,13 +22,35 @@ export class SuppliersController {
   constructor(private readonly suppliersService: SuppliersService) {}
 
   @Get()
-  list(@CurrentUser() user: AuthenticatedUser) {
-    return this.suppliersService.list(user.organizationId);
+  list(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('includeInactive') includeInactive?: string,
+  ) {
+    return this.suppliersService.list(user.organizationId, includeInactive === 'true');
+  }
+
+  @Get(':id')
+  findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.suppliersService.findOne(user.organizationId, id);
   }
 
   @Post()
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateSupplierDto) {
     return this.suppliersService.create(user.organizationId, user.id, dto);
+  }
+
+  @Patch(':id')
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateSupplierDto,
+  ) {
+    return this.suppliersService.update(user.organizationId, user.id, id, dto);
+  }
+
+  @Delete(':id')
+  remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.suppliersService.softDelete(user.organizationId, user.id, id);
   }
 }
 
@@ -76,5 +99,10 @@ export class PurchaseOrdersController {
     @Body() dto: ReceivePurchaseOrderDto,
   ) {
     return this.purchaseOrdersService.receive(user.organizationId, user.id, id, dto);
+  }
+
+  @Post(':id/cancel')
+  cancel(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.purchaseOrdersService.cancel(user.organizationId, user.id, id);
   }
 }

@@ -168,6 +168,33 @@ export class PurchaseOrdersService {
     return this.findOne(organizationId, poId);
   }
 
+  async cancel(organizationId: string, userId: string, poId: string) {
+    const po = await this.getPo(organizationId, poId);
+    if (po.status === 'RECEIVED' || po.status === 'PARTIAL') {
+      throw new BadRequestException('Received POs cannot be cancelled');
+    }
+    if (po.status === 'CANCELLED') {
+      throw new BadRequestException('PO is already cancelled');
+    }
+
+    await this.prisma.purchaseOrder.update({
+      where: { id: poId },
+      data: { status: 'CANCELLED' },
+    });
+
+    await this.audit.log({
+      organizationId,
+      branchId: po.branchId,
+      userId,
+      action: 'UPDATE',
+      entityType: 'purchase_order',
+      entityId: poId,
+      afterState: { status: 'CANCELLED' },
+    });
+
+    return this.findOne(organizationId, poId);
+  }
+
   async receive(
     organizationId: string,
     userId: string,

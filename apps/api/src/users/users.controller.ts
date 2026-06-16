@@ -18,6 +18,12 @@ import { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  @Get('roles/list')
+  @Permissions('user.view', 'user.manage')
+  listRoles(@CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.listRoles(user.organizationId);
+  }
+
   @Get()
   @Permissions('user.view')
   findAll(@CurrentUser() user: AuthenticatedUser) {

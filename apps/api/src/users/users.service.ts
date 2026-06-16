@@ -21,6 +21,14 @@ export class UsersService {
     private readonly audit: AuditService,
   ) {}
 
+  async listRoles(organizationId: string) {
+    return this.prisma.role.findMany({
+      where: { organizationId },
+      orderBy: { name: 'asc' },
+      select: { id: true, slug: true, name: true },
+    });
+  }
+
   async findAll(organizationId: string) {
     return this.prisma.user.findMany({
       where: { organizationId, deletedAt: null },

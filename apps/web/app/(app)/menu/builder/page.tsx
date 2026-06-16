@@ -14,6 +14,8 @@ import {
 } from '@qauto/ui';
 import { getApiClient } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth-store';
+import { ConfirmDialog, Modal } from '@/components/admin/modal';
+import { MenuItemDetailModal } from '@/components/admin/menu-item-detail-modal';
 
 type Tab = 'categories' | 'items' | 'modifiers';
 type Category = Awaited<ReturnType<ReturnType<typeof getApiClient>['getMenuAdminCategories']>>[number];
@@ -54,6 +56,13 @@ export default function MenuBuilderPage() {
     code: '',
     priceAdjustment: '0',
   });
+  const [editCategory, setEditCategory] = useState<Category | null>(null);
+  const [deleteCategory, setDeleteCategory] = useState<Category | null>(null);
+  const [detailItem, setDetailItem] = useState<MenuItem | null>(null);
+  const [deleteItem, setDeleteItem] = useState<MenuItem | null>(null);
+  const [editGroup, setEditGroup] = useState<ModifierGroup | null>(null);
+  const [deleteGroup, setDeleteGroup] = useState<ModifierGroup | null>(null);
+  const [editModifier, setEditModifier] = useState<{ groupId: string; id: string; name: string; priceAdjustment: string; isActive: boolean } | null>(null);
 
   const load = useCallback(async () => {
     if (!branchId) return;
@@ -184,6 +193,120 @@ export default function MenuBuilderPage() {
     }
   }
 
+  async function saveCategoryEdit() {
+    if (!editCategory) return;
+    setSubmitting(true);
+    try {
+      await getApiClient().updateMenuCategory(editCategory.id, {
+        name: editCategory.name,
+        sortOrder: editCategory.sortOrder,
+      });
+      toast('Category updated', 'success');
+      setEditCategory(null);
+      load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Update failed', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function confirmDeleteCategory() {
+    if (!deleteCategory) return;
+    setSubmitting(true);
+    try {
+      await getApiClient().deleteMenuCategory(deleteCategory.id);
+      toast('Category deleted', 'success');
+      setDeleteCategory(null);
+      load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Delete failed', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function confirmDeleteItem() {
+    if (!deleteItem) return;
+    setSubmitting(true);
+    try {
+      await getApiClient().deleteMenuItem(deleteItem.id);
+      toast('Menu item deleted', 'success');
+      setDeleteItem(null);
+      load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Delete failed', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function saveGroupEdit() {
+    if (!editGroup) return;
+    setSubmitting(true);
+    try {
+      await getApiClient().updateModifierGroup(editGroup.id, {
+        name: editGroup.name,
+        minSelections: editGroup.minSelections,
+        maxSelections: editGroup.maxSelections,
+      });
+      toast('Modifier group updated', 'success');
+      setEditGroup(null);
+      load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Update failed', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function confirmDeleteGroup() {
+    if (!deleteGroup) return;
+    setSubmitting(true);
+    try {
+      await getApiClient().deleteModifierGroup(deleteGroup.id);
+      toast('Modifier group deleted', 'success');
+      setDeleteGroup(null);
+      load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Delete failed', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function saveModifierEdit() {
+    if (!editModifier) return;
+    setSubmitting(true);
+    try {
+      await getApiClient().updateModifier(editModifier.groupId, editModifier.id, {
+        name: editModifier.name,
+        priceAdjustment: editModifier.priceAdjustment,
+        isActive: editModifier.isActive,
+      });
+      toast('Modifier updated', 'success');
+      setEditModifier(null);
+      load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Update failed', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function deleteModifier(groupId: string, modifierId: string) {
+    setSubmitting(true);
+    try {
+      await getApiClient().deleteModifier(groupId, modifierId);
+      toast('Modifier deleted', 'success');
+      load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Delete failed', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -265,9 +388,13 @@ export default function MenuBuilderPage() {
                           </Badge>
                         </td>
                         <td className="py-3">
-                          <Button variant="ghost" size="sm" onClick={() => toggleCategory(cat)}>
-                            {cat.isActive ? 'Deactivate' : 'Activate'}
-                          </Button>
+                          <div className="flex flex-wrap gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => setEditCategory({ ...cat })}>Edit</Button>
+                            <Button variant="ghost" size="sm" onClick={() => toggleCategory(cat)}>
+                              {cat.isActive ? 'Deactivate' : 'Activate'}
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => setDeleteCategory(cat)}>Delete</Button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -361,7 +488,8 @@ export default function MenuBuilderPage() {
                       <th className="pb-3 pr-4 font-medium">Code</th>
                       <th className="pb-3 pr-4 font-medium">Category</th>
                       <th className="pb-3 pr-4 font-medium">Type</th>
-                      <th className="pb-3 font-medium">Price</th>
+                      <th className="pb-3 pr-4 font-medium">Price</th>
+                      <th className="pb-3 font-medium">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -374,6 +502,12 @@ export default function MenuBuilderPage() {
                           <Badge variant="default">{item.type}</Badge>
                         </td>
                         <td className="py-3">{item.basePrice} QAR</td>
+                        <td className="py-3">
+                          <div className="flex flex-wrap gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => setDetailItem(item)}>Manage</Button>
+                            <Button variant="ghost" size="sm" onClick={() => setDeleteItem(item)}>Delete</Button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -473,6 +607,8 @@ export default function MenuBuilderPage() {
                         {group.minSelections}–{group.maxSelections} selections
                       </Badge>
                       {group.isRequired ? <Badge variant="warning">Required</Badge> : null}
+                      <Button variant="ghost" size="sm" onClick={() => setEditGroup({ ...group })}>Edit</Button>
+                      <Button variant="ghost" size="sm" onClick={() => setDeleteGroup(group)}>Delete</Button>
                     </div>
                     {group.modifiers.length === 0 ? (
                       <p className="text-sm text-ink-muted">No modifiers in this group</p>
@@ -484,7 +620,8 @@ export default function MenuBuilderPage() {
                               <th className="pb-2 pr-4 font-medium">Name</th>
                               <th className="pb-2 pr-4 font-medium">Code</th>
                               <th className="pb-2 pr-4 font-medium">Price</th>
-                              <th className="pb-2 font-medium">Status</th>
+                              <th className="pb-2 pr-4 font-medium">Status</th>
+                              <th className="pb-2 font-medium">Actions</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -501,6 +638,12 @@ export default function MenuBuilderPage() {
                                     {mod.isActive ? 'Active' : 'Inactive'}
                                   </Badge>
                                 </td>
+                                <td className="py-2">
+                                  <div className="flex gap-1">
+                                    <Button variant="ghost" size="sm" onClick={() => setEditModifier({ groupId: group.id, id: mod.id, name: mod.name, priceAdjustment: mod.priceAdjustment, isActive: mod.isActive })}>Edit</Button>
+                                    <Button variant="ghost" size="sm" onClick={() => deleteModifier(group.id, mod.id)}>Delete</Button>
+                                  </div>
+                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -514,6 +657,44 @@ export default function MenuBuilderPage() {
           </Card>
         </div>
       ) : null}
+
+      <MenuItemDetailModal item={detailItem} modifierGroups={modifierGroups} onClose={() => setDetailItem(null)} onUpdated={load} />
+
+      <Modal open={!!editCategory} title="Edit category" onClose={() => setEditCategory(null)} footer={<><Button variant="ghost" onClick={() => setEditCategory(null)}>Cancel</Button><Button variant="primary" loading={submitting} onClick={saveCategoryEdit}>Save</Button></>}>
+        {editCategory ? (
+          <div className="space-y-3">
+            <Input label="Name" value={editCategory.name} onChange={(e) => setEditCategory((c) => c ? { ...c, name: e.target.value } : c)} />
+            <Input label="Sort order" value={String(editCategory.sortOrder)} onChange={(e) => setEditCategory((c) => c ? { ...c, sortOrder: parseInt(e.target.value, 10) || 0 } : c)} />
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal open={!!editGroup} title="Edit modifier group" onClose={() => setEditGroup(null)} footer={<><Button variant="ghost" onClick={() => setEditGroup(null)}>Cancel</Button><Button variant="primary" loading={submitting} onClick={saveGroupEdit}>Save</Button></>}>
+        {editGroup ? (
+          <div className="space-y-3">
+            <Input label="Name" value={editGroup.name} onChange={(e) => setEditGroup((g) => g ? { ...g, name: e.target.value } : g)} />
+            <Input label="Min selections" value={String(editGroup.minSelections)} onChange={(e) => setEditGroup((g) => g ? { ...g, minSelections: parseInt(e.target.value, 10) || 0 } : g)} />
+            <Input label="Max selections" value={String(editGroup.maxSelections)} onChange={(e) => setEditGroup((g) => g ? { ...g, maxSelections: parseInt(e.target.value, 10) || 1 } : g)} />
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal open={!!editModifier} title="Edit modifier" onClose={() => setEditModifier(null)} footer={<><Button variant="ghost" onClick={() => setEditModifier(null)}>Cancel</Button><Button variant="primary" loading={submitting} onClick={saveModifierEdit}>Save</Button></>}>
+        {editModifier ? (
+          <div className="space-y-3">
+            <Input label="Name" value={editModifier.name} onChange={(e) => setEditModifier((m) => m ? { ...m, name: e.target.value } : m)} />
+            <Input label="Price adjustment (QAR)" value={editModifier.priceAdjustment} onChange={(e) => setEditModifier((m) => m ? { ...m, priceAdjustment: e.target.value } : m)} />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={editModifier.isActive} onChange={(e) => setEditModifier((m) => m ? { ...m, isActive: e.target.checked } : m)} className="rounded border-border" />
+              <span>Active</span>
+            </label>
+          </div>
+        ) : null}
+      </Modal>
+
+      <ConfirmDialog open={!!deleteCategory} title="Delete category" message={`Delete ${deleteCategory?.name}?`} loading={submitting} onConfirm={confirmDeleteCategory} onClose={() => setDeleteCategory(null)} />
+      <ConfirmDialog open={!!deleteItem} title="Delete menu item" message={`Delete ${deleteItem?.name}?`} loading={submitting} onConfirm={confirmDeleteItem} onClose={() => setDeleteItem(null)} />
+      <ConfirmDialog open={!!deleteGroup} title="Delete modifier group" message={`Delete ${deleteGroup?.name}?`} loading={submitting} onConfirm={confirmDeleteGroup} onClose={() => setDeleteGroup(null)} />
     </div>
   );
 }

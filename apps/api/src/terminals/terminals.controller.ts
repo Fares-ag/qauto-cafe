@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { TerminalsService } from './terminals.service';
 import { RegisterTerminalDto } from './dto/register-terminal.dto';
+import { UpdateTerminalDto } from './dto/update-terminal.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { BranchAccessGuard } from '../common/guards/branch-access.guard';
@@ -26,5 +27,16 @@ export class TerminalsController {
   @Permissions('terminal.manage', 'pos.access', 'bar.access')
   list(@CurrentUser() user: AuthenticatedUser, @Query('branchId') branchId: string) {
     return this.terminalsService.listByBranch(branchId, user.organizationId);
+  }
+
+  @Patch(':id')
+  @UseGuards(JwtAuthGuard, PermissionsGuard, BranchAccessGuard)
+  @Permissions('terminal.manage')
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateTerminalDto,
+  ) {
+    return this.terminalsService.update(id, user.organizationId, dto);
   }
 }

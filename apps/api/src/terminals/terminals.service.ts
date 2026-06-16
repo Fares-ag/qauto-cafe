@@ -65,6 +65,34 @@ export class TerminalsService {
         type: true,
         lastSeenAt: true,
         locationId: true,
+        isActive: true,
+      },
+    });
+  }
+
+  async update(id: string, organizationId: string, dto: { name?: string; isActive?: boolean }) {
+    const terminal = await this.prisma.terminal.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+        branch: { organizationId },
+      },
+    });
+    if (!terminal) throw new NotFoundException('Terminal not found');
+
+    return this.prisma.terminal.update({
+      where: { id },
+      data: {
+        name: dto.name,
+        isActive: dto.isActive,
+        ...(dto.isActive === false ? { deletedAt: new Date() } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        lastSeenAt: true,
+        isActive: true,
       },
     });
   }

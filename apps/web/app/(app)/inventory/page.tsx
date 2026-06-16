@@ -1,9 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import type { InventoryStockItem } from '@qauto/api-client';
 import {
   Badge,
+  Button,
   DataTable,
   EmptyState,
   KpiCard,
@@ -49,6 +51,14 @@ export default function InventoryOverviewPage() {
       <PageHeader
         title="Inventory"
         description="Stock on hand, value in QAR, and reorder alerts"
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Link href="/inventory/receive"><Button variant="secondary" size="sm">Receive</Button></Link>
+            <Link href="/inventory/waste"><Button variant="secondary" size="sm">Waste</Button></Link>
+            <Link href="/inventory/adjust"><Button variant="secondary" size="sm">Adjust</Button></Link>
+            <Link href="/inventory/movements"><Button variant="ghost" size="sm">Movements</Button></Link>
+          </div>
+        }
       />
 
       <div className="grid gap-4 sm:grid-cols-3">

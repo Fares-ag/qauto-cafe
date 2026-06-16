@@ -310,11 +310,21 @@ export class ApiClient {
     const qs = menuItemId ? `?menuItemId=${encodeURIComponent(menuItemId)}` : '';
     return this.request<Array<{
       id: string;
+      menuItemId: string;
       menuItemName: string;
+      sizeId: string | null;
       sizeName: string | null;
       version: number;
       status: string;
       lineCount: number;
+      lines: Array<{
+        id: string;
+        ingredientId: string;
+        ingredientName: string;
+        quantity: string;
+        uom: string;
+        isOptional: boolean;
+      }>;
     }>>(`/recipes/admin${qs}`);
   }
 
@@ -365,6 +375,17 @@ export class ApiClient {
     return this.request('/inventory/waste', { method: 'POST', body: JSON.stringify(body) });
   }
 
+  async adjustStock(body: {
+    branchId: string;
+    ingredientId: string;
+    quantityDelta: string;
+    reason: string;
+    inputUomId?: string;
+    unitCost?: string;
+  }) {
+    return this.request('/inventory/adjust', { method: 'POST', body: JSON.stringify(body) });
+  }
+
   async getStockMovements(branchId: string, limit = 30) {
     return this.request<StockMovementRow[]>(
       `/inventory/movements?branchId=${encodeURIComponent(branchId)}&limit=${limit}`,
@@ -394,12 +415,32 @@ export class ApiClient {
     return this.request(`/reports/employee-activity?${params}`);
   }
 
-  async listSuppliers() {
-    return this.request<Array<{ id: string; name: string; code: string }>>('/suppliers');
+  async listSuppliers(includeInactive = false) {
+    const qs = includeInactive ? '?includeInactive=true' : '';
+    return this.request<Array<{
+      id: string;
+      name: string;
+      code: string;
+      contactName?: string | null;
+      email?: string | null;
+      phone?: string | null;
+      isActive?: boolean;
+    }>>(`/suppliers${qs}`);
   }
 
-  async createSupplier(body: { name: string; code: string; contactName?: string; email?: string }) {
+  async createSupplier(body: { name: string; code: string; contactName?: string; email?: string; phone?: string }) {
     return this.request('/suppliers', { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  async updateSupplier(
+    supplierId: string,
+    body: { name?: string; contactName?: string; email?: string; phone?: string; isActive?: boolean },
+  ) {
+    return this.request(`/suppliers/${supplierId}`, { method: 'PATCH', body: JSON.stringify(body) });
+  }
+
+  async deleteSupplier(supplierId: string) {
+    return this.request(`/suppliers/${supplierId}`, { method: 'DELETE' });
   }
 
   async listPurchaseOrders(branchId: string) {
@@ -427,6 +468,10 @@ export class ApiClient {
       method: 'POST',
       body: JSON.stringify(body),
     });
+  }
+
+  async cancelPurchaseOrder(poId: string) {
+    return this.request(`/purchase-orders/${poId}/cancel`, { method: 'POST' });
   }
 
   async getDailySalesReport(branchId: string, businessDate: string) {
@@ -569,14 +614,14 @@ export class ApiClient {
     menuItemId: string;
     sizeId?: string;
     notes?: string;
-    lines: Array<{ ingredientId: string; quantity: string; isOptional?: boolean }>;
+    lines: Array<{ ingredientId: string; quantity: string; uomId?: string; isOptional?: boolean }>;
   }) {
     return this.request('/recipes/admin', { method: 'POST', body: JSON.stringify(body) });
   }
 
   async updateRecipeLines(
     recipeId: string,
-    lines: Array<{ ingredientId: string; quantity: string; isOptional?: boolean }>,
+    lines: Array<{ ingredientId: string; quantity: string; uomId?: string; isOptional?: boolean }>,
   ) {
     return this.request(`/recipes/${recipeId}/lines`, {
       method: 'PATCH',
@@ -603,9 +648,13 @@ export class ApiClient {
   }
 
   async listTerminals(branchId: string) {
-    return this.request<Array<{ id: string; name: string; type: string; lastSeenAt: string | null }>>(
+    return this.request<Array<{ id: string; name: string; type: string; lastSeenAt: string | null; isActive?: boolean }>>(
       `/terminals?branchId=${encodeURIComponent(branchId)}`,
     );
+  }
+
+  async updateTerminal(terminalId: string, body: { name?: string; isActive?: boolean }) {
+    return this.request(`/terminals/${terminalId}`, { method: 'PATCH', body: JSON.stringify(body) });
   }
 
   async listBranches() {
@@ -715,12 +764,17 @@ export class ApiClient {
     return this.request(`/customers/${customerId}`, { method: 'DELETE' });
   }
 
+  async listRoles() {
+    return this.request<Array<{ id: string; slug: string; name: string }>>('/users/roles/list');
+  }
+
   async listUsers() {
     return this.request<Array<{
       id: string;
       firstName: string;
       lastName: string;
       email: string | null;
+      employeeNumber: string | null;
       status: string;
       role: { id: string; slug: string; name: string };
       branches: Array<{ branch: { id: string; name: string; code: string } }>;
