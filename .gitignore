@@ -10,3 +10,5 @@ coverage
 .DS_Store
 apps/web/test-results/
 apps/web/tsconfig.tsbuildinfo
+
+.vercel
