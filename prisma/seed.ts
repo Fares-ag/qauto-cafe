@@ -459,6 +459,7 @@ async function seedOfficeDirectory(prisma: PrismaClient, organizationId: string)
   for (const entry of OFFICE_DIRECTORY) {
     const [firstName, ...rest] = entry.name.split(/\s+/);
     const lastName = rest.join(' ') || null;
+    const notes = entry.position ?? 'Office extension directory';
     const existing = await prisma.customer.findFirst({
       where: { organizationId, phoneExtension: entry.extension, deletedAt: null },
     });
@@ -469,6 +470,9 @@ async function seedOfficeDirectory(prisma: PrismaClient, organizationId: string)
           firstName,
           lastName,
           department: entry.department,
+          email: entry.email?.toLowerCase(),
+          phone: entry.phone,
+          notes,
           isActive: true,
         },
       });
@@ -481,7 +485,9 @@ async function seedOfficeDirectory(prisma: PrismaClient, organizationId: string)
         lastName,
         department: entry.department,
         phoneExtension: entry.extension,
-        notes: 'Office extension directory',
+        email: entry.email?.toLowerCase(),
+        phone: entry.phone,
+        notes,
       },
     });
   }

@@ -19,6 +19,9 @@
     "db:seed": "prisma db seed",
     "db:import-menu": "tsx prisma/import-menu-from-excel.ts",
     "db:import-menu:dry": "tsx prisma/import-menu-from-excel.ts --dry-run",
+    "db:import-directory": "tsx prisma/import-directory-from-excel.ts --import",
+    "db:import-directory:dry": "tsx prisma/import-directory-from-excel.ts --import --dry-run",
+    "db:import-directory:generate": "tsx prisma/import-directory-from-excel.ts --generate-ts",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "vercel-build": "npm run build --workspace=@qauto/shared-types && npm run build --workspace=@qauto/api-client && npm run build --workspace=@qauto/web",
@@ -31,7 +34,8 @@
     "prisma": "^6.9.0",
     "tsx": "^4.19.4",
     "turbo": "^2.5.4",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "xlsx": "^0.18.5"
   },
   "dependencies": {
     "@prisma/client": "^6.9.0",

@@ -550,6 +550,7 @@ export class ApiClient {
         name: string;
         department: string | null;
         phoneExtension: string | null;
+        position?: string | null;
         pointsBalance: number;
       }>
     >('/customers/directory');

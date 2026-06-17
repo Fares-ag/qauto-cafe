@@ -10,6 +10,7 @@ export type DirectoryEntry = {
   name: string;
   department: string | null;
   phoneExtension: string | null;
+  position?: string | null;
   pointsBalance: number;
 };
 
@@ -211,10 +212,11 @@ export function RegisterCustomerPanel({ value, onChange, disabled }: Props) {
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-medium text-ink">{entry.name}</span>
+                        {entry.position ? (
+                          <span className="block truncate text-xs text-ink-muted">{entry.position}</span>
+                        ) : null}
                         {entry.department ? (
-                          <span className="block truncate text-xs text-ink-muted">
-                            {entry.department}
-                          </span>
+                          <span className="block truncate text-xs text-ink-muted">{entry.department}</span>
                         ) : null}
                       </span>
                     </button>

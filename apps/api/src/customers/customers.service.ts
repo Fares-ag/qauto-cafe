@@ -77,6 +77,7 @@ export class CustomersService {
     return customers.map((c) => ({
       ...this.serialize(c),
       phoneExtension: c.phoneExtension,
+      position: c.notes?.split(' · ')[0] ?? c.notes,
       pointsBalance: c.loyaltyAccount?.pointsBalance ?? 0,
     }));
   }
