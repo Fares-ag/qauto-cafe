@@ -12,9 +12,13 @@ import { ensureTerminal } from '@/lib/terminal';
 import { printReceipt } from '@/lib/print-receipt';
 import { MenuGrid } from '@/components/MenuGrid';
 import { CartPanel } from '@/components/CartPanel';
-import type { CustomerOption } from '@/components/CustomerAutocomplete';
+import {
+  emptyRegisterCustomer,
+  type RegisterCustomerValue,
+} from '@/components/RegisterCustomerPanel';
+import { RegisterTips } from '@/components/RegisterTips';
 import type { SplitPaymentRow } from '@/components/SplitPaySheet';
-import { getCategoryIcon } from '@/lib/navigation';
+import { getCategoryIcon, ORDER_TYPE_LABELS } from '@/lib/navigation';
 
 const ModifierSheet = dynamic(
   () => import('@/components/ModifierSheet').then((m) => m.ModifierSheet),
@@ -27,10 +31,10 @@ const SplitPaySheet = dynamic(
 );
 
 const ORDER_TYPES: { value: OrderType; label: string }[] = [
-  { value: 'COUNTER', label: 'Counter' },
-  { value: 'TAKEAWAY', label: 'Takeaway' },
-  { value: 'STAFF', label: 'Staff' },
-  { value: 'COMP', label: 'Comp' },
+  { value: 'COUNTER', label: ORDER_TYPE_LABELS.COUNTER },
+  { value: 'TAKEAWAY', label: ORDER_TYPE_LABELS.TAKEAWAY },
+  { value: 'STAFF', label: ORDER_TYPE_LABELS.STAFF },
+  { value: 'COMP', label: ORDER_TYPE_LABELS.COMP },
 ];
 
 function isStockShortageErrors(errors: unknown): errors is StockShortageError[] {
@@ -71,10 +75,8 @@ export default function SellPage() {
   const [openingFloat, setOpeningFloat] = useState('100.0000');
   const [closeCash, setCloseCash] = useState('');
   const [showCloseShift, setShowCloseShift] = useState(false);
-  const [customerName, setCustomerName] = useState('');
-  const [customerDepartment, setCustomerDepartment] = useState('');
-  const [paymentDueDate, setPaymentDueDate] = useState('');
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerOption | null>(null);
+  const [registerCustomer, setRegisterCustomer] = useState<RegisterCustomerValue>(emptyRegisterCustomer());
+  const [loyaltyPointsBalance, setLoyaltyPointsBalance] = useState(0);
   const [loyaltyPointsRedeem, setLoyaltyPointsRedeem] = useState('');
   const [giftCardCode, setGiftCardCode] = useState('');
   const [orderType, setOrderType] = useState<OrderType>('COUNTER');
@@ -235,15 +237,43 @@ export default function SellPage() {
   }
 
   async function syncCustomer(orderId: string) {
-    if (!customerName && !customerDepartment && !paymentDueDate && !selectedCustomer) return;
+    const { customerName, customerDepartment, customerId, billingParty, guestName } = registerCustomer;
+    const hasDetails =
+      customerName.trim() ||
+      customerDepartment.trim() ||
+      customerId ||
+      guestName.trim() ||
+      billingParty === 'DEPARTMENT';
+    if (!hasDetails) return;
+
     await withAuth((client) =>
       client.updateOrderCustomer(orderId, {
-        customerId: selectedCustomer?.id,
-        customerName: customerName || selectedCustomer?.name || undefined,
-        customerDepartment: customerDepartment || selectedCustomer?.department || undefined,
-        paymentDueDate: paymentDueDate || undefined,
+        customerId: billingParty === 'DEPARTMENT' ? null : customerId ?? undefined,
+        customerName: customerName.trim() || undefined,
+        customerDepartment: customerDepartment.trim() || undefined,
+        guestName: guestName.trim() || undefined,
+        billingParty,
       }),
     );
+  }
+
+  function handleRegisterCustomerChange(value: RegisterCustomerValue) {
+    setRegisterCustomer(value);
+    if (value.mode === 'extension' && value.customerId) {
+      withAuth((client) => client.getCustomerDirectory())
+        .then((entries) => {
+          const match = entries.find((e) => e.id === value.customerId);
+          setLoyaltyPointsBalance(match?.pointsBalance ?? 0);
+        })
+        .catch(() => setLoyaltyPointsBalance(0));
+    } else {
+      setLoyaltyPointsBalance(0);
+    }
+  }
+
+  function resetRegisterCustomer() {
+    setRegisterCustomer(emptyRegisterCustomer());
+    setLoyaltyPointsBalance(0);
   }
 
   async function handleApplyDiscount() {
@@ -311,8 +341,8 @@ export default function SellPage() {
         paidAt: result.order.paidAt,
       });
 
-      setPaySuccess(`Order #${result.order.orderNumber} paid · COGS ${result.order.cogsTotal} QAR`);
-      toast('Payment successful', 'success');
+      setPaySuccess(`Paid — Order #${result.order.orderNumber}`);
+      toast('Payment complete', 'success');
       printReceipt(result);
       await loadCatalog();
       setShowSplitPay(false);
@@ -320,10 +350,7 @@ export default function SellPage() {
       setTimeout(() => {
         setOrder(null);
         setPaySuccess(null);
-        setCustomerName('');
-        setCustomerDepartment('');
-        setPaymentDueDate('');
-        setSelectedCustomer(null);
+        resetRegisterCustomer();
         setLoyaltyPointsRedeem('');
         setGiftCardCode('');
         setOrderType('COUNTER');
@@ -376,22 +403,22 @@ export default function SellPage() {
         status: result.order.status,
         cogsTotal: result.order.cogsTotal,
         deferredAt: result.order.deferredAt,
-        customerName: result.order.customerName ?? (customerName || null),
-        customerDepartment: result.order.customerDepartment ?? (customerDepartment || null),
+        customerName: result.order.customerName ?? (registerCustomer.customerName || null),
+        customerDepartment: result.order.customerDepartment ?? (registerCustomer.customerDepartment || null),
+        guestName: result.order.guestName ?? null,
+        billingParty: result.order.billingParty ?? registerCustomer.billingParty,
       });
 
       setPaySuccess(
         `Order #${result.order.orderNumber} sent to kitchen · payment pending`,
       );
-      toast('Order deferred — collect payment later', 'success');
+      toast('Sent to kitchen — collect payment later', 'success');
       await loadCatalog();
 
       setTimeout(() => {
         setOrder(null);
         setPaySuccess(null);
-        setCustomerName('');
-        setCustomerDepartment('');
-        setPaymentDueDate('');
+        resetRegisterCustomer();
       }, 3000);
     } catch (err) {
       if (
@@ -401,7 +428,7 @@ export default function SellPage() {
       ) {
         setStockErrors(err.body.errors);
       } else {
-        setPayError(err instanceof Error ? err.message : 'Defer failed');
+        setPayError(err instanceof Error ? err.message : 'Could not send to kitchen');
       }
     } finally {
       setSyncing(false);
@@ -420,18 +447,18 @@ export default function SellPage() {
     return (
       <div className="mx-auto max-w-md">
         <Card padding="lg">
-          <h1 className="text-xl font-semibold text-ink">Open your shift</h1>
+          <h1 className="text-xl font-semibold text-ink">Start your shift</h1>
           <p className="mt-1 text-sm text-ink-muted">
-            Enter the cash in the drawer, then start taking orders
+            Count the cash in the drawer, then tap Start shift
           </p>
           <div className="mt-4 space-y-3">
             <Input
-              label="Opening float (QAR)"
+              label="Starting cash in drawer (QAR)"
               value={openingFloat}
               onChange={(e) => setOpeningFloat(e.target.value)}
             />
             <Button variant="primary" size="lg" className="w-full" onClick={handleOpenShift}>
-              Open shift
+              Start shift
             </Button>
           </div>
         </Card>
@@ -444,7 +471,7 @@ export default function SellPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-ink">Sell</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-ink">Register</h1>
             <p className="text-sm text-ink-muted">
               {order ? `Order #${order.orderNumber}` : 'New order'}
             </p>
@@ -465,7 +492,7 @@ export default function SellPage() {
               <button
                 key={type.value}
                 type="button"
-                disabled={Boolean(order?.lines.length)}
+                disabled={Boolean(order && (order.status === 'PAID' || order.status === 'PENDING_PAYMENT' || order.deferredAt))}
                 onClick={() => setOrderType(type.value)}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                   orderType === type.value
@@ -485,6 +512,8 @@ export default function SellPage() {
 
       {paySuccess ? <Alert variant="success">{paySuccess}</Alert> : null}
       {error ? <Alert variant="error">{error}</Alert> : null}
+
+      <RegisterTips />
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
@@ -524,24 +553,13 @@ export default function SellPage() {
           isSyncing={isSyncing}
           payError={payError}
           stockErrors={stockErrors}
-          customer={selectedCustomer}
-          customerName={customerName}
-          customerDepartment={customerDepartment}
-          paymentDueDate={paymentDueDate}
+          registerCustomer={registerCustomer}
+          onRegisterCustomerChange={handleRegisterCustomerChange}
+          loyaltyPointsBalance={loyaltyPointsBalance}
           loyaltyPointsRedeem={loyaltyPointsRedeem}
           giftCardCode={giftCardCode}
           discountType={discountType}
           discountValue={discountValue}
-          onCustomerChange={(c) => {
-            setSelectedCustomer(c);
-            if (c) {
-              setCustomerName(c.name);
-              if (c.department) setCustomerDepartment(c.department);
-            }
-          }}
-          onCustomerNameChange={setCustomerName}
-          onCustomerDepartmentChange={setCustomerDepartment}
-          onPaymentDueDateChange={setPaymentDueDate}
           onLoyaltyPointsRedeemChange={setLoyaltyPointsRedeem}
           onGiftCardCodeChange={setGiftCardCode}
           onDiscountTypeChange={setDiscountType}

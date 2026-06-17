@@ -65,6 +65,11 @@ enum OrderType {
   COMP
 }
 
+enum BillingParty {
+  INDIVIDUAL
+  DEPARTMENT
+}
+
 enum PaymentMethodType {
   CASH
   CARD
@@ -932,6 +937,8 @@ model Order {
   syncStatus     SyncStatus  @default(SYNCED) @map("sync_status")
   customerName       String?     @map("customer_name")
   customerDepartment String?     @map("customer_department")
+  billingParty       BillingParty @default(INDIVIDUAL) @map("billing_party")
+  guestName          String?     @map("guest_name")
   deferredAt         DateTime?   @map("deferred_at")
   paymentDueDate     DateTime?   @map("payment_due_date") @db.Date
   notes              String?
@@ -1202,6 +1209,7 @@ model Customer {
   lastName       String?   @map("last_name")
   email          String?
   phone          String?
+  phoneExtension String?   @map("phone_extension")
   employeeId     String?   @map("employee_id")
   department     String?
   notes          String?
@@ -1217,6 +1225,7 @@ model Customer {
 
   @@index([organizationId, email])
   @@index([organizationId, employeeId])
+  @@index([organizationId, phoneExtension])
   @@map("customers")
 }
 

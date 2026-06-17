@@ -83,6 +83,8 @@ export interface OrderLine {
   modifiers: OrderLineModifier[];
 }
 
+export type BillingParty = 'INDIVIDUAL' | 'DEPARTMENT';
+
 export interface Order {
   id: string;
   branchId: string;
@@ -91,6 +93,8 @@ export interface Order {
   orderType: OrderType;
   customerName: string | null;
   customerDepartment?: string | null;
+  billingParty?: BillingParty;
+  guestName?: string | null;
   deferredAt?: string | null;
   paymentDueDate?: string | null;
   subtotal: string;

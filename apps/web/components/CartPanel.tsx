@@ -2,25 +2,23 @@
 
 import type { Order } from '@qauto/shared-types';
 import { Alert, ActionTile, Button, Card, CollapsibleSection, Input, StatusBadge } from '@qauto/ui';
-import { CustomerAutocomplete, type CustomerOption } from '@/components/CustomerAutocomplete';
+import {
+  RegisterCustomerPanel,
+  type RegisterCustomerValue,
+} from '@/components/RegisterCustomerPanel';
 
 interface CartPanelProps {
   order: Order | null;
   isSyncing: boolean;
   payError: string | null;
   stockErrors: Array<{ ingredientName: string; required: string; available: string; uom: string }>;
-  customer: CustomerOption | null;
-  customerName: string;
-  customerDepartment: string;
-  paymentDueDate: string;
+  registerCustomer: RegisterCustomerValue;
+  onRegisterCustomerChange: (value: RegisterCustomerValue) => void;
+  loyaltyPointsBalance: number;
   loyaltyPointsRedeem: string;
   giftCardCode: string;
   discountType: 'PERCENTAGE' | 'FIXED_AMOUNT';
   discountValue: string;
-  onCustomerChange: (customer: CustomerOption | null) => void;
-  onCustomerNameChange: (value: string) => void;
-  onCustomerDepartmentChange: (value: string) => void;
-  onPaymentDueDateChange: (value: string) => void;
   onLoyaltyPointsRedeemChange: (value: string) => void;
   onGiftCardCodeChange: (value: string) => void;
   onDiscountTypeChange: (value: 'PERCENTAGE' | 'FIXED_AMOUNT') => void;
@@ -41,18 +39,13 @@ export function CartPanel({
   isSyncing,
   payError,
   stockErrors,
-  customer,
-  customerName,
-  customerDepartment,
-  paymentDueDate,
+  registerCustomer,
+  onRegisterCustomerChange,
+  loyaltyPointsBalance,
   loyaltyPointsRedeem,
   giftCardCode,
   discountType,
   discountValue,
-  onCustomerChange,
-  onCustomerNameChange,
-  onCustomerDepartmentChange,
-  onPaymentDueDateChange,
   onLoyaltyPointsRedeemChange,
   onGiftCardCodeChange,
   onDiscountTypeChange,
@@ -94,18 +87,37 @@ export function CartPanel({
         ) : null}
       </div>
 
+      {!isLocked ? (
+        <RegisterCustomerPanel
+          value={registerCustomer}
+          onChange={onRegisterCustomerChange}
+          disabled={isSyncing}
+        />
+      ) : null}
+
       {!isLocked && (order?.customerName || order?.customerDepartment) ? (
-        <div className="mb-4 rounded-lg bg-surface-sunken px-3 py-2 text-sm">
-          {order?.customerName ? <p className="font-medium text-ink">{order.customerName}</p> : null}
-          {order?.customerDepartment ? (
-            <p className="text-ink-muted">{order.customerDepartment}</p>
-          ) : null}
+        <div className="mb-4 mt-3 rounded-lg bg-surface-sunken px-3 py-2 text-sm">
+          {order?.billingParty === 'DEPARTMENT' ? (
+            <>
+              <p className="font-medium text-ink">
+                Guest: {order.guestName || order.customerName || 'Office guest'}
+              </p>
+              <p className="text-ink-muted">Bill to {order.customerDepartment}</p>
+            </>
+          ) : (
+            <>
+              {order?.customerName ? <p className="font-medium text-ink">{order.customerName}</p> : null}
+              {order?.customerDepartment ? (
+                <p className="text-ink-muted">{order.customerDepartment}</p>
+              ) : null}
+            </>
+          )}
         </div>
       ) : null}
 
-      <div className="flex-1 space-y-2 overflow-y-auto">
+      <div className="mt-4 flex-1 space-y-2 overflow-y-auto">
         {!order?.lines.length ? (
-          <p className="py-6 text-center text-sm text-ink-muted">Tap items to build the order</p>
+          <p className="py-6 text-center text-sm text-ink-muted">Tap a drink to start</p>
         ) : null}
         {order?.lines.map((line, index) => (
           <div
@@ -158,13 +170,11 @@ export function CartPanel({
       </div>
 
       {stockErrors.length > 0 ? (
-        <Alert variant="error" title="Out of stock" className="mt-3">
+        <Alert variant="error" title="Can't make this item" className="mt-3">
           <ul className="mt-1 list-inside list-disc space-y-0.5">
             {stockErrors.map((e) => (
               <li key={e.ingredientName}>
-                {e.ingredientName}: need {e.required}
-                {e.uom}, have {e.available}
-                {e.uom}
+                {e.ingredientName} — sold out
               </li>
             ))}
           </ul>
@@ -212,7 +222,18 @@ export function CartPanel({
               />
             </div>
 
-            <CollapsibleSection title="More payment options" icon="➕">
+            <Button
+              variant="ghost"
+              size="lg"
+              className="w-full border border-dashed border-border"
+              disabled={!order?.lines.length || isSyncing}
+              loading={isSyncing}
+              onClick={onPayLater}
+            >
+              Send to kitchen · pay later
+            </Button>
+
+            <CollapsibleSection title="More options" icon="➕">
               <div className="space-y-2">
                 <Button
                   variant="ghost"
@@ -239,40 +260,6 @@ export function CartPanel({
                 >
                   Pay with gift card
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="lg"
-                  className="w-full"
-                  disabled={!order?.lines.length || isSyncing}
-                  loading={isSyncing}
-                  onClick={onPayLater}
-                >
-                  Pay later · send to kitchen
-                </Button>
-              </div>
-            </CollapsibleSection>
-
-            <CollapsibleSection title="Customer & pay later" icon="👤">
-              <div className="space-y-2">
-                <CustomerAutocomplete value={customer} onChange={onCustomerChange} />
-                <Input
-                  label="Customer name"
-                  value={customerName}
-                  onChange={(e) => onCustomerNameChange(e.target.value)}
-                  placeholder="Walk-in or corporate"
-                />
-                <Input
-                  label="Department"
-                  value={customerDepartment}
-                  onChange={(e) => onCustomerDepartmentChange(e.target.value)}
-                  placeholder="Optional"
-                />
-                <Input
-                  label="Payment due date"
-                  type="date"
-                  value={paymentDueDate}
-                  onChange={(e) => onPaymentDueDateChange(e.target.value)}
-                />
               </div>
             </CollapsibleSection>
 
@@ -322,9 +309,9 @@ export function CartPanel({
                     </Button>
                   ) : null}
                 </div>
-                {customer && customer.pointsBalance > 0 ? (
+                {loyaltyPointsBalance > 0 ? (
                   <Input
-                    label={`Redeem points (max ${customer.pointsBalance})`}
+                    label={`Redeem points (max ${loyaltyPointsBalance})`}
                     value={loyaltyPointsRedeem}
                     onChange={(e) => onLoyaltyPointsRedeemChange(e.target.value)}
                     placeholder="100 pts = 1 QAR"

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateCustomerDto, UpdateCustomerDto } from './dto/customer.dto';
+import { BillingParty } from '@prisma/client';
 
 function splitName(name: string): { firstName: string; lastName: string } {
   const parts = name.trim().split(/\s+/);
@@ -47,6 +48,7 @@ export class CustomersService {
           { phone: { contains: q, mode: 'insensitive' } },
           { employeeId: { contains: q, mode: 'insensitive' } },
           { department: { contains: q, mode: 'insensitive' } },
+          { phoneExtension: { contains: q, mode: 'insensitive' } },
         ],
       },
       take: limit,
@@ -58,6 +60,60 @@ export class CustomersService {
       ...this.serialize(c),
       pointsBalance: c.loyaltyAccount?.pointsBalance ?? 0,
     }));
+  }
+
+  async getDirectory(organizationId: string) {
+    const customers = await this.prisma.customer.findMany({
+      where: {
+        organizationId,
+        deletedAt: null,
+        isActive: true,
+        phoneExtension: { not: null },
+      },
+      orderBy: [{ phoneExtension: 'asc' }],
+      include: { loyaltyAccount: { select: { pointsBalance: true } } },
+    });
+
+    return customers.map((c) => ({
+      ...this.serialize(c),
+      phoneExtension: c.phoneExtension,
+      pointsBalance: c.loyaltyAccount?.pointsBalance ?? 0,
+    }));
+  }
+
+  async listDepartments(organizationId: string) {
+    const rows = await this.prisma.customer.findMany({
+      where: {
+        organizationId,
+        deletedAt: null,
+        isActive: true,
+        department: { not: null },
+      },
+      select: { department: true },
+      distinct: ['department'],
+      orderBy: { department: 'asc' },
+    });
+
+    return rows.map((r) => r.department!).filter(Boolean);
+  }
+
+  async findByExtension(organizationId: string, extension: string) {
+    const normalized = extension.trim();
+    const customer = await this.prisma.customer.findFirst({
+      where: {
+        organizationId,
+        deletedAt: null,
+        isActive: true,
+        phoneExtension: normalized,
+      },
+      include: { loyaltyAccount: { select: { pointsBalance: true } } },
+    });
+    if (!customer) throw new NotFoundException('Extension not found');
+    return {
+      ...this.serialize(customer),
+      phoneExtension: customer.phoneExtension,
+      pointsBalance: customer.loyaltyAccount?.pointsBalance ?? 0,
+    };
   }
 
   async findOne(organizationId: string, id: string) {
@@ -79,6 +135,7 @@ export class CustomersService {
         employeeId: dto.employeeId,
         email: dto.email?.toLowerCase(),
         phone: dto.phone,
+        phoneExtension: dto.phoneExtension,
         notes: dto.notes,
       },
     });
@@ -110,6 +167,7 @@ export class CustomersService {
         ...(dto.employeeId !== undefined ? { employeeId: dto.employeeId } : {}),
         ...(dto.email !== undefined ? { email: dto.email?.toLowerCase() ?? null } : {}),
         ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
+        ...(dto.phoneExtension !== undefined ? { phoneExtension: dto.phoneExtension } : {}),
         ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },
@@ -156,6 +214,7 @@ export class CustomersService {
     lastName: string | null;
     email: string | null;
     phone: string | null;
+    phoneExtension: string | null;
     employeeId: string | null;
     department: string | null;
     notes: string | null;
@@ -170,6 +229,7 @@ export class CustomersService {
       lastName: customer.lastName,
       email: customer.email,
       phone: customer.phone,
+      phoneExtension: customer.phoneExtension,
       employeeId: customer.employeeId,
       department: customer.department,
       notes: customer.notes,

@@ -1,0 +1,25 @@
+'use client';
+
+import { Button, Card } from '@qauto/ui';
+import { useUiStore } from '@/lib/ui-store';
+
+export function RegisterTips() {
+  const dismissed = useUiStore((s) => s.registerTipsDismissed);
+  const setDismissed = useUiStore((s) => s.setRegisterTipsDismissed);
+
+  if (dismissed) return null;
+
+  return (
+    <Card padding="lg" className="border-brand/20 bg-brand-muted/20">
+      <h2 className="text-base font-semibold text-ink">Quick start</h2>
+      <ol className="mt-2 list-inside list-decimal space-y-1 text-sm text-ink-secondary">
+        <li>Tap a drink, pick size, then add to order</li>
+        <li>Use <strong>Extension</strong> when an office calls — pick their ext. number</li>
+        <li>Tap <strong>Cash</strong> or <strong>Card</strong> to finish, or send to kitchen first</li>
+      </ol>
+      <Button variant="ghost" size="sm" className="mt-3" onClick={() => setDismissed(true)}>
+        Got it
+      </Button>
+    </Card>
+  );
+}

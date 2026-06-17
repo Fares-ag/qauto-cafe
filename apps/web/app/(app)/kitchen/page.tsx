@@ -83,7 +83,7 @@ export default function KitchenPage() {
 
   const grouped = useMemo(
     () => ({
-      paid: orders.filter((o) => o.status === 'PAID'),
+      paid: orders.filter((o) => o.status === 'PAID' || o.status === 'PENDING_PAYMENT'),
       inPrep: orders.filter((o) => o.status === 'IN_PREP'),
       ready: orders.filter((o) => o.status === 'READY'),
     }),
@@ -116,7 +116,7 @@ export default function KitchenPage() {
           <h1 className={`font-semibold tracking-tight text-ink ${kitchenDisplayMode ? 'text-2xl' : 'text-xl'}`}>
             Kitchen queue
           </h1>
-          <p className="text-sm text-ink-muted">Tap the button on each order to move it forward</p>
+          <p className="text-sm text-ink-muted">Tap the button on each ticket to move it forward</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={connected ? 'success' : 'neutral'}>
@@ -130,7 +130,7 @@ export default function KitchenPage() {
             className="gap-1.5"
           >
             {kitchenDisplayMode ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            {kitchenDisplayMode ? 'Exit display' : 'Display mode'}
+            {kitchenDisplayMode ? 'Exit full screen' : 'Full screen'}
           </Button>
         </div>
       </div>
@@ -146,7 +146,7 @@ export default function KitchenPage() {
           large={kitchenDisplayMode}
         />
         <QueueColumn
-          title="IN PREP"
+          title="PREPARING"
           orders={grouped.inPrep}
           onBump={handleBump}
           bumpingId={bumpingId}

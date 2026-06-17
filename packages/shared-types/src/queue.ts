@@ -14,6 +14,8 @@ export interface QueueOrder {
   status: OrderStatus;
   customerName: string | null;
   customerDepartment: string | null;
+  billingParty?: 'INDIVIDUAL' | 'DEPARTMENT';
+  guestName?: string | null;
   total: string;
   paidAt: string | null;
   deferredAt: string | null;

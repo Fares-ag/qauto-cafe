@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BillingParty } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OrderFulfillmentService } from './order-fulfillment.service';
 import { OrderQueueService } from './order-queue.service';
@@ -27,42 +28,52 @@ export class OrderDeferService {
       throw new BadRequestException('Customer details cannot be updated for this order');
     }
 
+    const billingParty = dto.billingParty ?? order.billingParty;
+    let customerId = dto.customerId !== undefined ? dto.customerId : order.customerId;
+    let customerName = dto.customerName ?? order.customerName;
+    let customerDepartment = dto.customerDepartment ?? order.customerDepartment;
+    let guestName = dto.guestName !== undefined ? dto.guestName : order.guestName;
+
+    if (billingParty === BillingParty.DEPARTMENT) {
+      customerId = null;
+      if (!customerDepartment?.trim()) {
+        throw new BadRequestException('Department is required for office guest billing');
+      }
+      customerName = guestName?.trim() || 'Office guest';
+    } else if (dto.customerId) {
+      const customer = await this.prisma.customer.findFirst({
+        where: { id: dto.customerId, organizationId, deletedAt: null },
+      });
+      if (customer) {
+        const name = [customer.firstName, customer.lastName].filter(Boolean).join(' ');
+        customerName = (dto.customerName ?? name) || customerName;
+        customerDepartment = dto.customerDepartment ?? customer.department ?? customerDepartment;
+        guestName = null;
+      }
+    }
+
     const updated = await this.prisma.order.update({
       where: { id: order.id },
       data: {
-        customerName: dto.customerName ?? order.customerName,
-        customerDepartment: dto.customerDepartment ?? order.customerDepartment,
-        customerId: dto.customerId ?? order.customerId,
+        customerName,
+        customerDepartment,
+        customerId,
+        guestName: billingParty === BillingParty.DEPARTMENT ? guestName : null,
+        billingParty,
         paymentDueDate: dto.paymentDueDate
           ? new Date(`${dto.paymentDueDate}T00:00:00.000Z`)
           : order.paymentDueDate,
       },
     });
 
-    if (dto.customerId && !dto.customerName) {
-      const customer = await this.prisma.customer.findFirst({
-        where: { id: dto.customerId, organizationId, deletedAt: null },
-      });
-      if (customer) {
-        const name = [customer.firstName, customer.lastName].filter(Boolean).join(' ');
-        await this.prisma.order.update({
-          where: { id: order.id },
-          data: {
-            customerName: name || order.customerName,
-            customerDepartment: customer.department ?? order.customerDepartment,
-          },
-        });
-      }
-    }
-
-    const result = await this.prisma.order.findUnique({ where: { id: order.id } });
-
     return {
-      id: result!.id,
-      customerName: result!.customerName,
-      customerDepartment: result!.customerDepartment,
-      customerId: result!.customerId,
-      paymentDueDate: result!.paymentDueDate?.toISOString().slice(0, 10) ?? null,
+      id: updated.id,
+      customerName: updated.customerName,
+      customerDepartment: updated.customerDepartment,
+      customerId: updated.customerId,
+      guestName: updated.guestName,
+      billingParty: updated.billingParty,
+      paymentDueDate: updated.paymentDueDate?.toISOString().slice(0, 10) ?? null,
     };
   }
 
@@ -126,17 +137,9 @@ export class OrderDeferService {
         deferredAt: updated.deferredAt?.toISOString(),
         customerName: updated.customerName,
         customerDepartment: updated.customerDepartment,
+        guestName: updated.guestName,
+        billingParty: updated.billingParty,
       },
     };
-  }
-
-  private resolveBusinessDate(cutoverHour: number): Date {
-    const now = new Date();
-    const business = new Date(now);
-    if (now.getHours() < cutoverHour) {
-      business.setDate(business.getDate() - 1);
-    }
-    business.setHours(0, 0, 0, 0);
-    return business;
   }
 }

@@ -12,14 +12,14 @@ export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ name: '', department: '', email: '' });
+  const [newCustomer, setNewCustomer] = useState({ name: '', department: '', email: '', phoneExtension: '' });
   const [giftAmount, setGiftAmount] = useState('50.0000');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [issuedCard, setIssuedCard] = useState<string | null>(null);
   const [balanceCode, setBalanceCode] = useState('');
   const [balanceResult, setBalanceResult] = useState<string | null>(null);
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', department: '', email: '', isActive: true });
+  const [editForm, setEditForm] = useState({ name: '', department: '', email: '', phoneExtension: '', isActive: true });
   const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
 
   const load = useCallback(async () => {
@@ -44,6 +44,7 @@ export default function CustomersPage() {
       name: c.name,
       department: c.department ?? '',
       email: c.email ?? '',
+      phoneExtension: c.phoneExtension ?? '',
       isActive: c.isActive,
     });
   }
@@ -54,7 +55,7 @@ export default function CustomersPage() {
     try {
       await getApiClient().createCustomer(newCustomer);
       toast('Customer created', 'success');
-      setNewCustomer({ name: '', department: '', email: '' });
+      setNewCustomer({ name: '', department: '', email: '', phoneExtension: '' });
       load();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed', 'error');
@@ -71,6 +72,7 @@ export default function CustomersPage() {
         name: editForm.name,
         department: editForm.department || undefined,
         email: editForm.email || undefined,
+        phoneExtension: editForm.phoneExtension || undefined,
         isActive: editForm.isActive,
       });
       toast('Customer updated', 'success');
@@ -135,6 +137,7 @@ export default function CustomersPage() {
           <form onSubmit={createCustomer} className="space-y-3">
             <Input label="Name" value={newCustomer.name} onChange={(e) => setNewCustomer((s) => ({ ...s, name: e.target.value }))} required />
             <Input label="Department" value={newCustomer.department} onChange={(e) => setNewCustomer((s) => ({ ...s, department: e.target.value }))} />
+            <Input label="Phone extension" value={newCustomer.phoneExtension} onChange={(e) => setNewCustomer((s) => ({ ...s, phoneExtension: e.target.value }))} placeholder="e.g. 1101" />
             <Input label="Email" type="email" value={newCustomer.email} onChange={(e) => setNewCustomer((s) => ({ ...s, email: e.target.value }))} />
             <Button type="submit" variant="primary" loading={submitting}>Create customer</Button>
           </form>
@@ -180,6 +183,7 @@ export default function CustomersPage() {
               <thead>
                 <tr className="border-b border-border text-left text-ink-muted">
                   <th className="pb-3 pr-4 font-medium">Name</th>
+                  <th className="pb-3 pr-4 font-medium">Ext.</th>
                   <th className="pb-3 pr-4 font-medium">Department</th>
                   <th className="pb-3 pr-4 font-medium">Email</th>
                   <th className="pb-3 pr-4 font-medium">Status</th>
@@ -190,6 +194,7 @@ export default function CustomersPage() {
                 {customers.map((c) => (
                   <tr key={c.id} className="border-b border-border/60">
                     <td className="py-3 pr-4 font-medium text-ink">{c.name}</td>
+                    <td className="py-3 pr-4 font-mono text-ink-secondary">{c.phoneExtension ?? '—'}</td>
                     <td className="py-3 pr-4 text-ink-secondary">{c.department ?? '—'}</td>
                     <td className="py-3 pr-4 text-ink-secondary">{c.email ?? '—'}</td>
                     <td className="py-3 pr-4">
@@ -225,6 +230,7 @@ export default function CustomersPage() {
         <div className="space-y-3">
           <Input label="Name" value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} />
           <Input label="Department" value={editForm.department} onChange={(e) => setEditForm((f) => ({ ...f, department: e.target.value }))} />
+          <Input label="Phone extension" value={editForm.phoneExtension} onChange={(e) => setEditForm((f) => ({ ...f, phoneExtension: e.target.value }))} />
           <Input label="Email" type="email" value={editForm.email} onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))} />
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={editForm.isActive} onChange={(e) => setEditForm((f) => ({ ...f, isActive: e.target.checked }))} className="rounded border-border" />

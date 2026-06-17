@@ -14,6 +14,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, branchId, sessionType, hasHydrated, clearSession, setBranchId } = useAuthStore();
   const kitchenDisplayMode = useUiStore((s) => s.kitchenDisplayMode);
+  const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
+  const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
   const [unpaidCount, setUnpaidCount] = useState(0);
   const [kitchenCount, setKitchenCount] = useState(0);
 
@@ -26,7 +28,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         client.getOrderQueue(branchId),
       ]);
       setUnpaidCount(unpaid.orderCount);
-      setKitchenCount(queue.filter((o) => ['PAID', 'IN_PREP', 'READY'].includes(o.status)).length);
+      setKitchenCount(queue.filter((o) => ['PENDING_PAYMENT', 'PAID', 'IN_PREP', 'READY'].includes(o.status)).length);
     } catch {
       // Badges are optional — ignore auth errors here
     }
@@ -92,6 +94,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         nav={minimalChrome ? [] : undefined}
         activePath={pathname}
         minimalChrome={minimalChrome}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
         onNavigate={(href) => router.push(href)}
         user={{
           name: `${user.firstName} ${user.lastName}`,

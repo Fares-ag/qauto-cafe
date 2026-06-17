@@ -18,8 +18,8 @@ import { useAuthStore } from '@/lib/auth-store';
 type OrderRow = Awaited<ReturnType<ReturnType<typeof getApiClient>['listOrders']>>['items'][number];
 
 const STATUS_FILTERS = [
+  { value: 'PENDING_PAYMENT', label: 'Needs payment' },
   { value: '', label: 'All' },
-  { value: 'PENDING_PAYMENT', label: 'Unpaid' },
   { value: 'PAID', label: 'Paid' },
   { value: 'IN_PREP', label: 'In prep' },
   { value: 'READY', label: 'Ready' },
@@ -33,7 +33,7 @@ export default function OrdersPage() {
   const { toast } = useToast();
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('PENDING_PAYMENT');
   const [actionId, setActionId] = useState<string | null>(null);
   const [actionOrder, setActionOrder] = useState<Order | null>(null);
   const [collectId, setCollectId] = useState<string | null>(null);

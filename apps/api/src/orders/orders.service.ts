@@ -342,6 +342,8 @@ export class OrdersService {
     orderType: string;
     customerName: string | null;
     customerDepartment?: string | null;
+    billingParty?: string;
+    guestName?: string | null;
     deferredAt?: Date | null;
     paymentDueDate?: Date | null;
     subtotal: Prisma.Decimal;
@@ -388,6 +390,8 @@ export class OrdersService {
       orderType: order.orderType,
     customerName: order.customerName,
     customerDepartment: order.customerDepartment,
+    billingParty: order.billingParty ?? 'INDIVIDUAL',
+    guestName: order.guestName ?? null,
     deferredAt: order.deferredAt?.toISOString() ?? null,
     paymentDueDate: order.paymentDueDate?.toISOString().slice(0, 10) ?? null,
     subtotal: decimalToString(order.subtotal),

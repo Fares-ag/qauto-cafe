@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { OFFICE_DIRECTORY } from './data/office-directory';
 
 const prisma = new PrismaClient();
 
@@ -138,6 +139,11 @@ const CASHIER_PERMISSIONS = [
   'shift.close',
   'shift.cash_event',
   'menu.view',
+  'menu.manage',
+  'menu.86',
+  'modifier.manage',
+  'recipe.view',
+  'ingredient.view',
   'stock.view',
   'customer.view',
 ];
@@ -357,6 +363,7 @@ async function main() {
   await seedMenu(prisma, org.id, branch.id);
   await seedInventory(prisma, org.id, branch.id);
   await seedCrm(prisma, org.id, branch.id);
+  await seedOfficeDirectory(prisma, org.id);
   await seedTerminals(prisma, branch.id);
 }
 
@@ -446,6 +453,39 @@ async function seedCrm(prisma: PrismaClient, organizationId: string, branchId: s
   });
 
   console.log('CRM seeded:', { branch2: branch2.code, customer: customer.id });
+}
+
+async function seedOfficeDirectory(prisma: PrismaClient, organizationId: string) {
+  for (const entry of OFFICE_DIRECTORY) {
+    const [firstName, ...rest] = entry.name.split(/\s+/);
+    const lastName = rest.join(' ') || null;
+    const existing = await prisma.customer.findFirst({
+      where: { organizationId, phoneExtension: entry.extension, deletedAt: null },
+    });
+    if (existing) {
+      await prisma.customer.update({
+        where: { id: existing.id },
+        data: {
+          firstName,
+          lastName,
+          department: entry.department,
+          isActive: true,
+        },
+      });
+      continue;
+    }
+    await prisma.customer.create({
+      data: {
+        organizationId,
+        firstName,
+        lastName,
+        department: entry.department,
+        phoneExtension: entry.extension,
+        notes: 'Office extension directory',
+      },
+    });
+  }
+  console.log('Office directory seeded:', { entries: OFFICE_DIRECTORY.length });
 }
 
 async function upsertIngredient(

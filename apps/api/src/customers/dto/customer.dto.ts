@@ -23,6 +23,10 @@ export class CreateCustomerDto {
 
   @IsOptional()
   @IsString()
+  phoneExtension?: string;
+
+  @IsOptional()
+  @IsString()
   notes?: string;
 }
 
@@ -47,6 +51,10 @@ export class UpdateCustomerDto {
   @IsOptional()
   @IsString()
   phone?: string;
+
+  @IsOptional()
+  @IsString()
+  phoneExtension?: string;
 
   @IsOptional()
   @IsString()

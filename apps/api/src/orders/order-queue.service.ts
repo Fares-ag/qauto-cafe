@@ -150,6 +150,8 @@ export class OrderQueueService {
       status: order.status as SharedOrderStatus,
       customerName: order.customerName,
       customerDepartment: order.customerDepartment,
+      billingParty: order.billingParty,
+      guestName: order.guestName,
       total: decimalToString(order.total),
       paidAt: order.paidAt?.toISOString() ?? null,
       deferredAt: order.deferredAt?.toISOString() ?? null,

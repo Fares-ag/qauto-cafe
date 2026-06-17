@@ -169,15 +169,32 @@ export class ApiClient {
   }
 
   async deferOrder(orderId: string) {
-    return this.request<{ order: { id: string; orderNumber: number; status: string; total: string; cogsTotal: string; deferredAt?: string; customerName?: string | null; customerDepartment?: string | null } }>(
-      `/orders/${orderId}/defer`,
-      { method: 'POST' },
-    );
+    return this.request<{
+      order: {
+        id: string;
+        orderNumber: number;
+        status: string;
+        total: string;
+        cogsTotal: string;
+        deferredAt?: string;
+        customerName?: string | null;
+        customerDepartment?: string | null;
+        guestName?: string | null;
+        billingParty?: 'INDIVIDUAL' | 'DEPARTMENT';
+      };
+    }>(`/orders/${orderId}/defer`, { method: 'POST' });
   }
 
   async updateOrderCustomer(
     orderId: string,
-    body: { customerName?: string; customerDepartment?: string; customerId?: string; paymentDueDate?: string },
+    body: {
+      customerName?: string;
+      customerDepartment?: string;
+      customerId?: string | null;
+      guestName?: string;
+      billingParty?: 'INDIVIDUAL' | 'DEPARTMENT';
+      paymentDueDate?: string;
+    },
   ) {
     return this.request(`/orders/${orderId}/customer`, {
       method: 'PATCH',
@@ -518,11 +535,28 @@ export class ApiClient {
         id: string;
         name: string;
         department: string | null;
+        phoneExtension: string | null;
         email: string | null;
         phone: string | null;
         pointsBalance: number;
       }>
     >(`/customers?q=${encodeURIComponent(query)}`);
+  }
+
+  async getCustomerDirectory() {
+    return this.request<
+      Array<{
+        id: string;
+        name: string;
+        department: string | null;
+        phoneExtension: string | null;
+        pointsBalance: number;
+      }>
+    >('/customers/directory');
+  }
+
+  async getCustomerDepartments() {
+    return this.request<string[]>('/customers/departments');
   }
 
   async getLoyaltyRewards() {
@@ -723,6 +757,7 @@ export class ApiClient {
       email: string | null;
       employeeId: string | null;
       department: string | null;
+      phoneExtension: string | null;
       isActive: boolean;
     }>>('/customers');
   }
@@ -737,6 +772,7 @@ export class ApiClient {
     employeeId?: string;
     email?: string;
     phone?: string;
+    phoneExtension?: string;
     notes?: string;
   }) {
     return this.request('/customers', { method: 'POST', body: JSON.stringify(body) });
@@ -750,6 +786,7 @@ export class ApiClient {
       employeeId?: string;
       email?: string;
       phone?: string;
+      phoneExtension?: string;
       notes?: string;
       isActive?: boolean;
     },

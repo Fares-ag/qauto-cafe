@@ -39,10 +39,16 @@ export function OrderCard({
             #{order.orderNumber}
           </p>
           {order.customerName ? (
-            <p className="text-sm text-ink-secondary">{order.customerName}</p>
+            <p className={`text-ink-secondary ${large ? 'text-base' : 'text-sm'}`}>{order.customerName}</p>
+          ) : null}
+          {order.customerDepartment ? (
+            <p className="text-xs text-ink-muted">{order.customerDepartment}</p>
+          ) : null}
+          {order.billingParty === 'DEPARTMENT' ? (
+            <Badge variant="neutral" className="mt-1">Dept. bill</Badge>
           ) : null}
           {order.status === 'PENDING_PAYMENT' || (order.deferredAt && !order.paidAt) ? (
-            <Badge variant="warning" className="mt-1">Unpaid</Badge>
+            <Badge variant="warning" className="mt-1">Pay at counter</Badge>
           ) : null}
           {order.paidAt || order.deferredAt ? (
             <p className="text-xs text-ink-muted">

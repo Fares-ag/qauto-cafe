@@ -1,4 +1,5 @@
-import { IsDateString, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsUUID, MaxLength, ValidateIf } from 'class-validator';
+import { BillingParty } from '@prisma/client';
 
 export class UpdateOrderCustomerDto {
   @IsOptional()
@@ -12,10 +13,20 @@ export class UpdateOrderCustomerDto {
   customerDepartment?: string;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsUUID()
-  customerId?: string;
+  customerId?: string | null;
 
   @IsOptional()
-  @IsDateString()
+  @IsString()
+  @MaxLength(200)
+  guestName?: string;
+
+  @IsOptional()
+  @IsEnum(BillingParty)
+  billingParty?: BillingParty;
+
+  @IsOptional()
+  @IsString()
   paymentDueDate?: string;
 }

@@ -4,8 +4,8 @@ import type { NavGroup } from '@qauto/ui';
 import {
   BarChart3,
   ClipboardList,
-  Coffee,
   ChefHat,
+  Coffee,
   LayoutDashboard,
   Package,
   Settings,
@@ -22,11 +22,19 @@ const ICON_SIZE = 18;
 
 const STAFF_NAV: NavGroup[] = [
   {
+    label: 'Register',
     items: [
-      { id: 'sell', label: 'Sell', href: '/sell', icon: <ShoppingCart size={ICON_SIZE} /> },
+      { id: 'sell', label: 'Register', href: '/sell', icon: <ShoppingCart size={ICON_SIZE} /> },
       { id: 'kitchen', label: 'Kitchen', href: '/kitchen', icon: <ChefHat size={ICON_SIZE} /> },
       { id: 'orders', label: 'Orders', href: '/orders', icon: <ClipboardList size={ICON_SIZE} /> },
       { id: 'shifts', label: 'Shifts', href: '/shifts', icon: <Coffee size={ICON_SIZE} /> },
+    ],
+  },
+  {
+    label: 'Store',
+    items: [
+      { id: 'inventory', label: 'Stock', href: '/inventory', icon: <Warehouse size={ICON_SIZE} /> },
+      { id: 'menu', label: 'Menu', href: '/menu/builder', icon: <Package size={ICON_SIZE} /> },
     ],
   },
 ];
@@ -35,7 +43,7 @@ const MANAGER_NAV: NavGroup[] = [
   {
     label: 'Operations',
     items: [
-      { id: 'sell', label: 'Sell', href: '/sell', icon: <ShoppingCart size={ICON_SIZE} /> },
+      { id: 'sell', label: 'Register', href: '/sell', icon: <ShoppingCart size={ICON_SIZE} /> },
       { id: 'kitchen', label: 'Kitchen', href: '/kitchen', icon: <ChefHat size={ICON_SIZE} /> },
       { id: 'orders', label: 'Orders', href: '/orders', icon: <ClipboardList size={ICON_SIZE} /> },
       { id: 'shifts', label: 'Shifts', href: '/shifts', icon: <Coffee size={ICON_SIZE} /> },
@@ -60,7 +68,7 @@ const MANAGER_NAV: NavGroup[] = [
   {
     label: 'Admin',
     items: [
-      { id: 'menu', label: 'Menu', href: '/menu', icon: <Package size={ICON_SIZE} /> },
+      { id: 'menu', label: 'Menu', href: '/menu/builder', icon: <Package size={ICON_SIZE} /> },
       { id: 'users', label: 'Users', href: '/users', icon: <Users size={ICON_SIZE} /> },
       { id: 'audit', label: 'Audit log', href: '/audit', icon: <Shield size={ICON_SIZE} /> },
       { id: 'settings', label: 'Settings', href: '/settings', icon: <Settings size={ICON_SIZE} /> },
@@ -73,7 +81,7 @@ export function getNavGroups(sessionType: SessionType | null): NavGroup[] {
 }
 
 export function getShellSubtitle(sessionType: SessionType | null): string {
-  return sessionType === 'staff' ? 'Register' : 'Manager';
+  return sessionType === 'staff' ? 'Register mode' : 'Manager mode';
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -99,21 +107,25 @@ export function applyNavBadges(groups: NavGroup[], badges: { orders?: number; ki
   }));
 }
 
-export const CATEGORY_ICONS: Record<string, string> = {
-  coffee: '☕',
-  drinks: '🥤',
-  tea: '🍵',
-  pastry: '🥐',
-  pastries: '🥐',
-  food: '🥪',
-  snacks: '🍪',
-  default: '🍽️',
+export function getCategoryIcon(categoryName: string): string {
+  const key = categoryName.toLowerCase();
+  if (key.includes('coffee') || key.includes('drink') || key.includes('hot')) return '☕';
+  if (key.includes('cold') || key.includes('iced')) return '🧊';
+  if (key.includes('snack') || key.includes('food') || key.includes('pastry')) return '🥐';
+  if (key.includes('tea')) return '🍵';
+  return '🍽️';
+}
+
+export const ORDER_TYPE_LABELS: Record<string, string> = {
+  COUNTER: 'Counter',
+  TAKEAWAY: 'Takeaway',
+  STAFF: 'Staff meal',
+  COMP: 'On the house',
 };
 
-export function getCategoryIcon(name: string): string {
-  const key = name.toLowerCase();
-  for (const [pattern, icon] of Object.entries(CATEGORY_ICONS)) {
-    if (key.includes(pattern)) return icon;
-  }
-  return CATEGORY_ICONS.default;
-}
+export const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  CASH: 'Cash',
+  CARD: 'Card',
+  CORPORATE: 'Company account',
+  OTHER: 'Other',
+};

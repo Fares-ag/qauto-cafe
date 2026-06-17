@@ -13,12 +13,30 @@ export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
   @Get()
-  @Permissions('customer.view')
+  @Permissions('customer.view', 'pos.access')
   findAll(@CurrentUser() user: AuthenticatedUser, @Query('q') q?: string) {
     if (q?.trim()) {
       return this.customersService.search(user.organizationId, q);
     }
     return this.customersService.findAll(user.organizationId);
+  }
+
+  @Get('directory')
+  @Permissions('customer.view', 'pos.access')
+  getDirectory(@CurrentUser() user: AuthenticatedUser) {
+    return this.customersService.getDirectory(user.organizationId);
+  }
+
+  @Get('departments')
+  @Permissions('customer.view', 'pos.access')
+  listDepartments(@CurrentUser() user: AuthenticatedUser) {
+    return this.customersService.listDepartments(user.organizationId);
+  }
+
+  @Get('by-extension/:extension')
+  @Permissions('customer.view', 'pos.access')
+  findByExtension(@CurrentUser() user: AuthenticatedUser, @Param('extension') extension: string) {
+    return this.customersService.findByExtension(user.organizationId, extension);
   }
 
   @Get(':id')

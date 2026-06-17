@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Order } from '@qauto/shared-types';
 import { Button, Card, Input } from '@qauto/ui';
+import { PAYMENT_METHOD_LABELS } from '@/lib/navigation';
 
 export interface SplitPaymentRow {
   method: 'CASH' | 'CARD' | 'CORPORATE' | 'OTHER';
@@ -71,7 +72,7 @@ export function SplitPaySheet({ order, isSyncing, onClose, onConfirm }: SplitPay
                 >
                   {METHODS.map((m) => (
                     <option key={m} value={m}>
-                      {m}
+                      {PAYMENT_METHOD_LABELS[m] ?? m}
                     </option>
                   ))}
                 </select>
