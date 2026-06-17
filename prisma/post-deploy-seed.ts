@@ -46,7 +46,7 @@ async function seedOfficeDirectory(organizationId: string) {
     if (existing) {
       await prisma.customer.update({
         where: { id: existing.id },
-        data: { firstName, lastName, department: entry.department, isActive: true },
+        data: { firstName, lastName, department: entry.department, isOfficeDirectory: true, isActive: true },
       });
       continue;
     }
@@ -58,6 +58,7 @@ async function seedOfficeDirectory(organizationId: string) {
         department: entry.department,
         phoneExtension: entry.extension,
         notes: 'Office extension directory',
+        isOfficeDirectory: true,
       },
     });
   }

@@ -473,6 +473,7 @@ async function seedOfficeDirectory(prisma: PrismaClient, organizationId: string)
           email: entry.email?.toLowerCase(),
           phone: entry.phone,
           notes,
+          isOfficeDirectory: true,
           isActive: true,
         },
       });
@@ -488,6 +489,7 @@ async function seedOfficeDirectory(prisma: PrismaClient, organizationId: string)
         email: entry.email?.toLowerCase(),
         phone: entry.phone,
         notes,
+        isOfficeDirectory: true,
       },
     });
   }

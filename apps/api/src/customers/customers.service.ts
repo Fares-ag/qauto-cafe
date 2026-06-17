@@ -62,19 +62,47 @@ export class CustomersService {
     }));
   }
 
-  async getDirectory(organizationId: string) {
+  async getDirectory(organizationId: string, query?: string) {
+    return this.registerLookup(organizationId, query);
+  }
+
+  async registerLookup(organizationId: string, query?: string, limit = 500) {
+    const q = query?.trim();
     const customers = await this.prisma.customer.findMany({
       where: {
         organizationId,
         deletedAt: null,
         isActive: true,
-        phoneExtension: { not: null },
+        isOfficeDirectory: true,
+        ...(q
+          ? {
+              OR: [
+                { phoneExtension: { contains: q, mode: 'insensitive' } },
+                { firstName: { contains: q, mode: 'insensitive' } },
+                { lastName: { contains: q, mode: 'insensitive' } },
+                { department: { contains: q, mode: 'insensitive' } },
+                { notes: { contains: q, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
       },
-      orderBy: [{ phoneExtension: 'asc' }],
+      ...(q ? { take: limit } : {}),
+      orderBy: [{ phoneExtension: 'asc' }, { lastName: 'asc' }, { firstName: 'asc' }],
       include: { loyaltyAccount: { select: { pointsBalance: true } } },
     });
 
-    return customers.map((c) => ({
+    const sorted = [...customers].sort((a, b) => {
+      if (a.phoneExtension && b.phoneExtension) {
+        return a.phoneExtension.localeCompare(b.phoneExtension, undefined, { numeric: true });
+      }
+      if (a.phoneExtension) return -1;
+      if (b.phoneExtension) return 1;
+      const aName = formatName(a.firstName, a.lastName);
+      const bName = formatName(b.firstName, b.lastName);
+      return aName.localeCompare(bName);
+    });
+
+    return sorted.map((c) => ({
       ...this.serialize(c),
       phoneExtension: c.phoneExtension,
       position: c.notes?.split(' · ')[0] ?? c.notes,
@@ -88,6 +116,7 @@ export class CustomersService {
         organizationId,
         deletedAt: null,
         isActive: true,
+        isOfficeDirectory: true,
         department: { not: null },
       },
       select: { department: true },

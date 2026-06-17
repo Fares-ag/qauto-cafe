@@ -1,14 +1,27 @@
 import * as XLSX from 'xlsx';
 
 export type ParsedDirectoryRow = {
-  extension: string;
+  extension: string | null;
   name: string;
   department: string;
   position: string;
   email: string | null;
   phone: string | null;
-  extensionDisplay: string;
+  extensionDisplay: string | null;
   sheet: string;
+};
+
+export type DirectoryParseStats = {
+  totalRows: number;
+  withExtension: number;
+  withoutExtension: number;
+  skippedHeaders: number;
+  skippedEmpty: number;
+};
+
+export type DirectoryParseResult = {
+  entries: ParsedDirectoryRow[];
+  stats: DirectoryParseStats;
 };
 
 export function parseExtension(raw: unknown): string | null {
@@ -39,9 +52,21 @@ function isDepartmentHeader(name: string, position: string, extension: string | 
   return false;
 }
 
-export function parseDirectoryWorkbook(wb: XLSX.WorkBook): ParsedDirectoryRow[] {
+export function rosterKey(row: Pick<ParsedDirectoryRow, 'extension' | 'department' | 'name'>): string {
+  if (row.extension) return `ext:${row.extension}`;
+  return `roster:${row.department.toLowerCase()}|${row.name.toLowerCase()}`;
+}
+
+export function parseDirectoryWorkbook(wb: XLSX.WorkBook): DirectoryParseResult {
   const entries: ParsedDirectoryRow[] = [];
   const seen = new Map<string, ParsedDirectoryRow>();
+  const stats: DirectoryParseStats = {
+    totalRows: 0,
+    withExtension: 0,
+    withoutExtension: 0,
+    skippedHeaders: 0,
+    skippedEmpty: 0,
+  };
 
   for (const sheetName of wb.SheetNames) {
     if (sheetName === 'Q Auto Directory') continue;
@@ -63,14 +88,19 @@ export function parseDirectoryWorkbook(wb: XLSX.WorkBook): ParsedDirectoryRow[] 
         const emailRaw = String(row[off + 3] ?? '').trim();
         const extRaw = row[off + 4];
 
-        if (!name || name === 'Name') continue;
+        if (!name || name === 'Name') {
+          if (name === 'Name') continue;
+          stats.skippedEmpty++;
+          continue;
+        }
 
+        stats.totalRows++;
         const extension = parseExtension(extRaw);
         if (isDepartmentHeader(name, position, extension)) {
           department = normalizeDepartment(name);
+          stats.skippedHeaders++;
           continue;
         }
-        if (!extension) continue;
 
         const email =
           emailRaw && !/^n\/?a$/i.test(emailRaw) && emailRaw.includes('@')
@@ -86,32 +116,42 @@ export function parseDirectoryWorkbook(wb: XLSX.WorkBook): ParsedDirectoryRow[] 
           position,
           email,
           phone,
-          extensionDisplay: String(extRaw ?? extension).trim(),
+          extensionDisplay: extension ? String(extRaw ?? extension).trim() : null,
           sheet: sheetName,
         };
 
-        const existing = seen.get(extension);
+        const key = rosterKey(entry);
+        const existing = seen.get(key);
         if (!existing) {
-          seen.set(extension, entry);
+          seen.set(key, entry);
           entries.push(entry);
+          if (extension) stats.withExtension++;
+          else stats.withoutExtension++;
           continue;
         }
 
         if (!existing.email && entry.email) {
-          seen.set(extension, entry);
-          const idx = entries.findIndex((e) => e.extension === extension);
+          seen.set(key, entry);
+          const idx = entries.findIndex((e) => rosterKey(e) === key);
           if (idx >= 0) entries[idx] = entry;
         }
       }
     }
   }
 
-  return entries.sort((a, b) =>
-    a.extension.localeCompare(b.extension, undefined, { numeric: true }),
-  );
+  entries.sort((a, b) => {
+    if (a.extension && b.extension) {
+      return a.extension.localeCompare(b.extension, undefined, { numeric: true });
+    }
+    if (a.extension) return -1;
+    if (b.extension) return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  return { entries, stats };
 }
 
-export function readDirectoryFromFile(filePath: string): ParsedDirectoryRow[] {
+export function readDirectoryFromFile(filePath: string): DirectoryParseResult {
   const wb = XLSX.readFile(filePath);
   return parseDirectoryWorkbook(wb);
 }

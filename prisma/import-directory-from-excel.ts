@@ -1,17 +1,21 @@
 #!/usr/bin/env tsx
 /**
- * Import Q-Auto office directory from Excel into customers (register extension lookup).
+ * Import Q-Auto office directory from Excel into customers (register staff lookup).
  *
  * Usage:
  *   npx tsx prisma/import-directory-from-excel.ts --dry-run
- *   npx tsx prisma/import-directory-from-excel.ts
+ *   npx tsx prisma/import-directory-from-excel.ts --import
  *   npx tsx prisma/import-directory-from-excel.ts --file "path/to/directory.xlsx"
  *   npx tsx prisma/import-directory-from-excel.ts --generate-ts   # refresh prisma/data/office-directory.ts
  */
 import * as fs from 'fs';
 import * as path from 'path';
 import { PrismaClient } from '@prisma/client';
-import { readDirectoryFromFile, type ParsedDirectoryRow } from './lib/directory-parser';
+import {
+  readDirectoryFromFile,
+  rosterKey,
+  type ParsedDirectoryRow,
+} from './lib/directory-parser';
 
 const prisma = new PrismaClient({
   datasources: {
@@ -30,6 +34,7 @@ function withConnectionLimit(url?: string): string | undefined {
 
 const DRY_RUN = process.argv.includes('--dry-run');
 const GENERATE_TS = process.argv.includes('--generate-ts');
+const SHOULD_IMPORT = process.argv.includes('--import') || (!GENERATE_TS && !DRY_RUN);
 const fileArgIdx = process.argv.indexOf('--file');
 const DEFAULT_FILE = path.join(__dirname, 'data', 'Q-Auto-Directory-2026.xlsx');
 const FILE =
@@ -41,8 +46,18 @@ function splitName(fullName: string): { firstName: string; lastName: string | nu
   return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
 }
 
+function buildNotes(row: ParsedDirectoryRow): string | null {
+  const parts = [row.position];
+  if (row.extension && row.extensionDisplay && row.extensionDisplay !== row.extension) {
+    parts.push(`Line: ${row.extensionDisplay}`);
+  }
+  const notes = parts.filter(Boolean).join(' · ');
+  return notes || null;
+}
+
 function toTsModule(rows: ParsedDirectoryRow[]): string {
-  const lines = rows.map((r) => {
+  const withExt = rows.filter((r) => r.extension);
+  const lines = withExt.map((r) => {
     const dept = r.department.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const name = r.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const pos = r.position.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -80,20 +95,53 @@ async function resolveOrg() {
   return org;
 }
 
+async function findExisting(
+  organizationId: string,
+  row: ParsedDirectoryRow,
+) {
+  if (row.extension) {
+    return prisma.customer.findFirst({
+      where: { organizationId, phoneExtension: row.extension, deletedAt: null },
+    });
+  }
+
+  const { firstName, lastName } = splitName(row.name);
+  return prisma.customer.findFirst({
+    where: {
+      organizationId,
+      deletedAt: null,
+      isOfficeDirectory: true,
+      phoneExtension: null,
+      firstName,
+      lastName,
+      department: row.department,
+    },
+  });
+}
+
 async function upsertDirectory(organizationId: string, rows: ParsedDirectoryRow[]) {
   let created = 0;
   let updated = 0;
-  let skipped = 0;
+  let deactivated = 0;
+  const withExtension = rows.filter((r) => r.extension).length;
+  const withoutExtension = rows.filter((r) => !r.extension).length;
 
   for (const row of rows) {
     const { firstName, lastName } = splitName(row.name);
-    const notes = [row.position, row.extensionDisplay !== row.extension ? `Line: ${row.extensionDisplay}` : '']
-      .filter(Boolean)
-      .join(' · ');
+    const notes = buildNotes(row);
+    const existing = await findExisting(organizationId, row);
 
-    const existing = await prisma.customer.findFirst({
-      where: { organizationId, phoneExtension: row.extension, deletedAt: null },
-    });
+    const data = {
+      firstName,
+      lastName,
+      department: row.department,
+      email: row.email,
+      phone: row.phone,
+      notes,
+      phoneExtension: row.extension,
+      isOfficeDirectory: true,
+      isActive: true,
+    };
 
     if (DRY_RUN) {
       if (existing) updated++;
@@ -104,57 +152,61 @@ async function upsertDirectory(organizationId: string, rows: ParsedDirectoryRow[
     if (existing) {
       await prisma.customer.update({
         where: { id: existing.id },
-        data: {
-          firstName,
-          lastName,
-          department: row.department,
-          email: row.email,
-          phone: row.phone,
-          notes,
-          isActive: true,
-        },
+        data,
       });
       updated++;
     } else {
       await prisma.customer.create({
         data: {
           organizationId,
-          firstName,
-          lastName,
-          department: row.department,
-          phoneExtension: row.extension,
-          email: row.email,
-          phone: row.phone,
-          notes,
+          ...data,
         },
       });
       created++;
     }
   }
 
-  // Deactivate directory entries removed from the source file
-  const extensions = new Set(rows.map((r) => r.extension));
-  const stale = await prisma.customer.findMany({
+  const activeKeys = new Set(rows.map((r) => rosterKey(r)));
+  const roster = await prisma.customer.findMany({
     where: {
       organizationId,
       deletedAt: null,
-      phoneExtension: { not: null, notIn: [...extensions] },
+      isOfficeDirectory: true,
       isActive: true,
     },
-    select: { id: true },
+    select: {
+      id: true,
+      phoneExtension: true,
+      department: true,
+      firstName: true,
+      lastName: true,
+    },
   });
 
-  for (const c of stale) {
+  for (const c of roster) {
+    const name = [c.firstName, c.lastName].filter(Boolean).join(' ').trim();
+    const key = c.phoneExtension
+      ? `ext:${c.phoneExtension}`
+      : `roster:${(c.department ?? '').toLowerCase()}|${name.toLowerCase()}`;
+    if (activeKeys.has(key)) continue;
+
     if (!DRY_RUN) {
       await prisma.customer.update({
         where: { id: c.id },
         data: { isActive: false },
       });
     }
-    skipped++;
+    deactivated++;
   }
 
-  return { created, updated, skipped, total: rows.length };
+  return {
+    created,
+    updated,
+    deactivated,
+    withExtension,
+    withoutExtension,
+    total: rows.length,
+  };
 }
 
 async function main() {
@@ -162,8 +214,14 @@ async function main() {
     throw new Error(`File not found: ${FILE}`);
   }
 
-  const rows = readDirectoryFromFile(FILE);
-  console.log(`Parsed ${rows.length} directory entries from ${path.basename(FILE)}`);
+  const { entries: rows, stats } = readDirectoryFromFile(FILE);
+  console.log(`Parsed from ${path.basename(FILE)}:`);
+  console.log(`  total rows scanned: ${stats.totalRows}`);
+  console.log(`  with extension:     ${stats.withExtension}`);
+  console.log(`  without extension:  ${stats.withoutExtension}`);
+  console.log(`  skipped (headers):  ${stats.skippedHeaders}`);
+  console.log(`  skipped (empty):    ${stats.skippedEmpty}`);
+  console.log(`  unique entries:     ${rows.length}`);
 
   if (GENERATE_TS) {
     const out = path.join(__dirname, 'data', 'office-directory.ts');
@@ -171,13 +229,13 @@ async function main() {
     console.log(`Wrote ${out}`);
   }
 
-  if (GENERATE_TS && !process.argv.includes('--import')) {
+  if (!SHOULD_IMPORT) {
     return;
   }
 
   const org = await resolveOrg();
-  const stats = await upsertDirectory(org.id, rows);
-  console.log(DRY_RUN ? '[dry-run] ' : '', stats);
+  const result = await upsertDirectory(org.id, rows);
+  console.log(DRY_RUN ? '[dry-run] import result:' : 'Import result:', result);
 }
 
 main()

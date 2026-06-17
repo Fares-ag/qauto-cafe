@@ -23,8 +23,20 @@ export class CustomersController {
 
   @Get('directory')
   @Permissions('customer.view', 'pos.access')
-  getDirectory(@CurrentUser() user: AuthenticatedUser) {
-    return this.customersService.getDirectory(user.organizationId);
+  getDirectory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('q') q?: string,
+  ) {
+    return this.customersService.getDirectory(user.organizationId, q);
+  }
+
+  @Get('register-lookup')
+  @Permissions('customer.view', 'pos.access')
+  registerLookup(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('q') q?: string,
+  ) {
+    return this.customersService.registerLookup(user.organizationId, q);
   }
 
   @Get('departments')

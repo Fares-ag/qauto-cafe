@@ -47,36 +47,37 @@ export function emptyRegisterCustomer(): RegisterCustomerValue {
 export function RegisterCustomerPanel({ value, onChange, disabled }: Props) {
   const [directory, setDirectory] = useState<DirectoryEntry[]>([]);
   const [departments, setDepartments] = useState<string[]>([]);
-  const [extensionQuery, setExtensionQuery] = useState('');
+  const [staffQuery, setStaffQuery] = useState('');
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
+  const loadDepartments = useCallback(async () => {
+    const deptList = await withAuth((client) => client.getCustomerDepartments());
+    setDepartments(deptList);
+  }, []);
+
+  const loadDirectory = useCallback(async (query?: string) => {
     setLoading(true);
     try {
-      const [entries, deptList] = await withAuth((client) =>
-        Promise.all([client.getCustomerDirectory(), client.getCustomerDepartments()]),
-      );
+      const entries = await withAuth((client) => client.getCustomerDirectory(query));
       setDirectory(entries);
-      setDepartments(deptList);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    load().catch(() => undefined);
-  }, [load]);
+    loadDepartments().catch(() => undefined);
+  }, [loadDepartments]);
 
-  const filteredDirectory = useMemo(() => {
-    const q = extensionQuery.trim().toLowerCase();
-    if (!q) return directory;
-    return directory.filter(
-      (entry) =>
-        entry.phoneExtension?.includes(q) ||
-        entry.name.toLowerCase().includes(q) ||
-        entry.department?.toLowerCase().includes(q),
-    );
-  }, [directory, extensionQuery]);
+  useEffect(() => {
+    const q = staffQuery.trim();
+    const timer = setTimeout(() => {
+      loadDirectory(q || undefined).catch(() => undefined);
+    }, q ? 200 : 0);
+    return () => clearTimeout(timer);
+  }, [staffQuery, loadDirectory]);
+
+  const filteredDirectory = useMemo(() => directory, [directory]);
 
   function setMode(mode: RegisterCustomerValue['mode']) {
     if (mode === 'guest') {
@@ -99,7 +100,7 @@ export function RegisterCustomerPanel({ value, onChange, disabled }: Props) {
     onChange({ ...EMPTY, mode: 'extension', billingParty: 'INDIVIDUAL' });
   }
 
-  function selectExtension(entry: DirectoryEntry) {
+  function selectStaff(entry: DirectoryEntry) {
     onChange({
       mode: 'extension',
       customerId: entry.id,
@@ -113,7 +114,7 @@ export function RegisterCustomerPanel({ value, onChange, disabled }: Props) {
 
   function clearSelection() {
     onChange(emptyRegisterCustomer());
-    setExtensionQuery('');
+    setStaffQuery('');
   }
 
   const hasSelection =
@@ -135,7 +136,7 @@ export function RegisterCustomerPanel({ value, onChange, disabled }: Props) {
       <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-surface-raised p-0.5">
         {(
           [
-            ['extension', 'Extension'],
+            ['extension', 'Staff'],
             ['walkin', 'Walk-in'],
             ['guest', 'Office guest'],
           ] as const
@@ -173,6 +174,8 @@ export function RegisterCustomerPanel({ value, onChange, disabled }: Props) {
               ) : null}
               {value.phoneExtension ? (
                 <p className="text-xs text-ink-muted">Ext. {value.phoneExtension}</p>
+              ) : value.mode === 'extension' && value.customerId ? (
+                <p className="text-xs text-ink-muted">No extension</p>
               ) : null}
             </>
           )}
@@ -182,19 +185,19 @@ export function RegisterCustomerPanel({ value, onChange, disabled }: Props) {
       {value.mode === 'extension' ? (
         <div className="space-y-2">
           <Input
-            label="Search extension or name"
-            value={extensionQuery}
-            onChange={(e) => setExtensionQuery(e.target.value)}
-            placeholder="e.g. 1101 or Ahmed"
+            label="Search staff"
+            value={staffQuery}
+            onChange={(e) => setStaffQuery(e.target.value)}
+            placeholder="Extension, name, or department"
             disabled={disabled}
           />
           {loading ? (
-            <p className="text-xs text-ink-muted">Loading directory…</p>
+            <p className="text-xs text-ink-muted">Loading staff directory…</p>
           ) : (
             <ul className="max-h-40 space-y-1 overflow-y-auto">
               {filteredDirectory.length === 0 ? (
                 <li className="px-2 py-3 text-center text-xs text-ink-muted">
-                  No extensions found
+                  No staff found
                 </li>
               ) : (
                 filteredDirectory.map((entry) => (
@@ -202,14 +205,20 @@ export function RegisterCustomerPanel({ value, onChange, disabled }: Props) {
                     <button
                       type="button"
                       disabled={disabled}
-                      onClick={() => selectExtension(entry)}
+                      onClick={() => selectStaff(entry)}
                       className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-surface-raised ${
                         value.customerId === entry.id ? 'bg-brand-muted ring-1 ring-brand/30' : ''
                       }`}
                     >
-                      <span className="min-w-[3rem] font-mono text-xs font-bold text-brand">
-                        {entry.phoneExtension}
-                      </span>
+                      {entry.phoneExtension ? (
+                        <span className="min-w-[3rem] font-mono text-xs font-bold text-brand">
+                          {entry.phoneExtension}
+                        </span>
+                      ) : (
+                        <span className="min-w-[3rem] shrink-0 rounded bg-surface-sunken px-1.5 py-0.5 text-center text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
+                          No ext.
+                        </span>
+                      )}
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-medium text-ink">{entry.name}</span>
                         {entry.position ? (

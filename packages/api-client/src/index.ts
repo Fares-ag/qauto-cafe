@@ -543,7 +543,8 @@ export class ApiClient {
     >(`/customers?q=${encodeURIComponent(query)}`);
   }
 
-  async getCustomerDirectory() {
+  async getCustomerDirectory(query?: string) {
+    const qs = query?.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
     return this.request<
       Array<{
         id: string;
@@ -553,7 +554,21 @@ export class ApiClient {
         position?: string | null;
         pointsBalance: number;
       }>
-    >('/customers/directory');
+    >(`/customers/directory${qs}`);
+  }
+
+  async registerLookup(query?: string) {
+    const qs = query?.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
+    return this.request<
+      Array<{
+        id: string;
+        name: string;
+        department: string | null;
+        phoneExtension: string | null;
+        position?: string | null;
+        pointsBalance: number;
+      }>
+    >(`/customers/register-lookup${qs}`);
   }
 
   async getCustomerDepartments() {
