@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '@qauto/api-client';
 import type { CartLineInput, MenuCatalogItem, OrderType, StockShortageError } from '@qauto/shared-types';
@@ -9,7 +9,6 @@ import { Alert, Button, Card, Input, useToast } from '@qauto/ui';
 import { useAuthStore } from '@/lib/auth-store';
 import { useCartStore } from '@/lib/cart-store';
 import { withAuth } from '@/lib/api';
-import type { ApiClient } from '@qauto/api-client';
 import type { Order } from '@qauto/shared-types';
 import { printReceipt } from '@/lib/print-receipt';
 import { MenuGrid } from '@/components/MenuGrid';
@@ -23,6 +22,13 @@ import type { SplitPaymentRow } from '@/components/SplitPaySheet';
 import { getCategoryIcon, ORDER_TYPE_LABELS } from '@/lib/navigation';
 import { usePosBootstrap } from '@/lib/queries';
 import { queryKeys } from '@/lib/query-keys';
+import {
+  applyOptimisticAddLine,
+  applyOptimisticClearLines,
+  applyOptimisticRemoveLine,
+  applyOptimisticUpdateQuantity,
+  isPendingLineId,
+} from '@/lib/optimistic-order';
 
 const ModifierSheet = dynamic(
   () => import('@/components/ModifierSheet').then((m) => m.ModifierSheet),
@@ -41,6 +47,16 @@ const ORDER_TYPES: { value: OrderType; label: string }[] = [
   { value: 'COMP', label: ORDER_TYPE_LABELS.COMP },
 ];
 
+function hashRegisterCustomer(value: RegisterCustomerValue): string {
+  return JSON.stringify({
+    mode: value.mode,
+    customerId: value.customerId,
+    customerName: value.customerName.trim(),
+    customerDepartment: value.customerDepartment.trim(),
+    guestName: value.guestName.trim(),
+    billingParty: value.billingParty,
+  });
+}
 function isStockShortageErrors(errors: unknown): errors is StockShortageError[] {
   return (
     Array.isArray(errors) &&
@@ -64,11 +80,17 @@ export default function SellPage() {
     order,
     pending,
     isSyncing,
+    isPaying,
     setCatalog,
     setOrder,
     setPending,
     setSyncing,
+    setPaying,
   } = useCartStore();
+
+  const cartSyncQueueRef = useRef(Promise.resolve());
+  const pendingCartOpsRef = useRef(0);
+  const customerSyncedRef = useRef<string | null>(null);
 
   const { data: bootstrap, isLoading: bootstrapLoading, error: bootstrapError } = usePosBootstrap(branchId);
 
@@ -127,45 +149,145 @@ export default function SellPage() {
     [catalog, activeCategoryId],
   );
 
-  async function mutateOrder(fn: (client: ApiClient, orderId: string) => Promise<Order>) {
-    setSyncing(true);
-    setError(null);
-    try {
-      const current = order ?? (await ensureOrder());
-      if (!current) return;
-      const updated = await withAuth((client) => fn(client, current.id));
-      setOrder(updated);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update order');
-    } finally {
-      setSyncing(false);
+  const refreshOrderFromServer = useCallback(async (orderId: string) => {
+    const fresh = await withAuth((client) => client.getOrder(orderId));
+    const current = useCartStore.getState().order;
+    if (current?.id === orderId) {
+      setOrder(fresh);
     }
-  }
+    return fresh;
+  }, [setOrder]);
+
+  const enqueueCartMutation = useCallback(
+    (fn: () => Promise<void>) => {
+      pendingCartOpsRef.current += 1;
+      setSyncing(true);
+      setError(null);
+
+      cartSyncQueueRef.current = cartSyncQueueRef.current
+        .then(fn)
+        .catch(async (err) => {
+          const orderId = useCartStore.getState().order?.id;
+          if (orderId) {
+            try {
+              await refreshOrderFromServer(orderId);
+            } catch {
+              // keep optimistic state if refetch fails
+            }
+          }
+          setError(err instanceof Error ? err.message : 'Failed to update order');
+        })
+        .finally(() => {
+          pendingCartOpsRef.current -= 1;
+          if (pendingCartOpsRef.current <= 0) {
+            pendingCartOpsRef.current = 0;
+            setSyncing(false);
+          }
+        });
+    },
+    [refreshOrderFromServer, setSyncing],
+  );
+
+  const waitForCartSync = useCallback(async () => {
+    await cartSyncQueueRef.current;
+  }, []);
 
   async function addLine(line: CartLineInput) {
-    await mutateOrder((client, orderId) => client.addOrderLine(orderId, line));
+    if (isOrderLocked) return;
+
+    let currentOrder = useCartStore.getState().order;
+    const currentCatalog = useCartStore.getState().catalog;
+
+    if (!currentOrder) {
+      currentOrder = (await ensureOrder()) ?? null;
+      if (!currentOrder) return;
+    }
+
+    if (currentCatalog) {
+      setOrder(applyOptimisticAddLine(currentOrder, currentCatalog, line));
+    }
+
+    enqueueCartMutation(async () => {
+      const orderId = useCartStore.getState().order?.id ?? currentOrder!.id;
+      const updated = await withAuth((client) => client.addOrderLine(orderId, line));
+      setOrder(updated);
+    });
   }
 
-  async function handleUpdateQuantity(lineIndex: number, quantity: number) {
-    const line = order?.lines[lineIndex];
-    if (!line) return;
-    await mutateOrder((client, orderId) =>
-      client.updateOrderLineQuantity(orderId, line.id, quantity),
-    );
+  function handleUpdateQuantity(lineIndex: number, quantity: number) {
+    const currentOrder = useCartStore.getState().order;
+    const line = currentOrder?.lines[lineIndex];
+    if (!line || isOrderLocked) return;
+
+    setOrder(applyOptimisticUpdateQuantity(currentOrder, lineIndex, quantity));
+
+    enqueueCartMutation(async () => {
+      const latest = useCartStore.getState().order;
+      const latestLine = latest?.lines[lineIndex];
+      if (!latest?.id || !latestLine) return;
+
+      if (isPendingLineId(latestLine.id)) {
+        await refreshOrderFromServer(latest.id);
+        const refreshed = useCartStore.getState().order;
+        const resolvedLine = refreshed?.lines[lineIndex];
+        if (!refreshed?.id || !resolvedLine || isPendingLineId(resolvedLine.id)) return;
+
+        const updated =
+          quantity <= 0
+            ? await withAuth((client) => client.removeOrderLine(refreshed.id, resolvedLine.id))
+            : await withAuth((client) =>
+                client.updateOrderLineQuantity(refreshed.id, resolvedLine.id, quantity),
+              );
+        setOrder(updated);
+        return;
+      }
+
+      const updated =
+        quantity <= 0
+          ? await withAuth((client) => client.removeOrderLine(latest.id, latestLine.id))
+          : await withAuth((client) =>
+              client.updateOrderLineQuantity(latest.id, latestLine.id, quantity),
+            );
+      setOrder(updated);
+    });
   }
 
-  async function handleRemoveLine(lineIndex: number) {
-    const line = order?.lines[lineIndex];
-    if (!line) return;
-    await mutateOrder((client, orderId) => client.removeOrderLine(orderId, line.id));
+  function handleRemoveLine(lineIndex: number) {
+    const currentOrder = useCartStore.getState().order;
+    const line = currentOrder?.lines[lineIndex];
+    if (!line || isOrderLocked) return;
+
+    setOrder(applyOptimisticRemoveLine(currentOrder, lineIndex));
+
+    enqueueCartMutation(async () => {
+      const latest = useCartStore.getState().order;
+      const latestLine = latest?.lines[lineIndex];
+      if (!latest?.id) return;
+
+      if (!latestLine || isPendingLineId(latestLine.id)) {
+        await refreshOrderFromServer(latest.id);
+        return;
+      }
+
+      const updated = await withAuth((client) => client.removeOrderLine(latest.id, latestLine.id));
+      setOrder(updated);
+    });
   }
 
-  async function handleClear() {
-    if (!order) return;
+  function handleClear() {
+    const currentOrder = useCartStore.getState().order;
+    if (!currentOrder || isOrderLocked) return;
+
     setPayError(null);
     setStockErrors([]);
     setPaySuccess(null);
-    await mutateOrder((client, orderId) => client.clearOrderLines(orderId));
+    setOrder(applyOptimisticClearLines(currentOrder));
+
+    enqueueCartMutation(async () => {
+      const orderId = useCartStore.getState().order?.id ?? currentOrder.id;
+      const updated = await withAuth((client) => client.clearOrderLines(orderId));
+      setOrder(updated);
+    });
   }
 
   function invalidateMenuCatalog() {
@@ -182,9 +304,9 @@ export default function SellPage() {
   }
 
   async function handleSelectItem(item: MenuCatalogItem) {
-    if (isOrderLocked) return;
+    if (isOrderLocked || isPaying) return;
     if (item.type === 'SNACK' && item.modifierGroups.length === 0) {
-      await addLine({ menuItemId: item.id, quantity: 1, modifierIds: [] });
+      void addLine({ menuItemId: item.id, quantity: 1, modifierIds: [] });
       return;
     }
     setPending({ item, modifierIds: [] });
@@ -249,6 +371,7 @@ export default function SellPage() {
         billingParty,
       }),
     );
+    customerSyncedRef.current = hashRegisterCustomer(registerCustomer);
     const current = useCartStore.getState().order;
     if (current?.id === orderId) {
       setOrder({
@@ -333,21 +456,29 @@ export default function SellPage() {
     payments: Array<{ method: 'CASH' | 'CARD' | 'CORPORATE' | 'OTHER'; amount: string; reference?: string }>,
   ) {
     if (!order?.lines.length) return;
-    setSyncing(true);
+    setPaying(true);
     setPayError(null);
     setStockErrors([]);
     setPaySuccess(null);
 
     try {
+      await waitForCartSync();
+
       const validationError = validateRegisterCustomer();
       if (validationError) {
         setPayError(validationError);
         return;
       }
-      await syncCustomer(order.id);
+
+      const customerKey = hashRegisterCustomer(registerCustomer);
+      if (customerKey !== customerSyncedRef.current) {
+        await syncCustomer(order.id);
+      }
+
+      const latestOrder = useCartStore.getState().order ?? order;
       const points = loyaltyPointsRedeem ? parseInt(loyaltyPointsRedeem, 10) : undefined;
       const result = await withAuth((client) =>
-        client.payOrder(order.id, {
+        client.payOrder(latestOrder.id, {
           payments,
           idempotencyKey: crypto.randomUUID(),
           loyaltyPointsRedeem: points && points > 0 ? points : undefined,
@@ -356,7 +487,7 @@ export default function SellPage() {
       );
 
       setOrder({
-        ...order,
+        ...latestOrder,
         status: result.order.status,
         cogsTotal: result.order.cogsTotal,
         paidAt: result.order.paidAt,
@@ -389,19 +520,20 @@ export default function SellPage() {
         setPayError(err instanceof Error ? err.message : 'Payment failed');
       }
     } finally {
-      setSyncing(false);
+      setPaying(false);
     }
   }
-
   async function handlePay(method: 'CASH' | 'CARD') {
-    if (!order?.lines.length) return;
-    await completePayment([{ method, amount: order.total }]);
+    const latestOrder = useCartStore.getState().order;
+    if (!latestOrder?.lines.length) return;
+    await completePayment([{ method, amount: latestOrder.total }]);
   }
 
   async function handlePayWithGiftCard() {
-    if (!order?.lines.length || !giftCardCode) return;
+    const latestOrder = useCartStore.getState().order;
+    if (!latestOrder?.lines.length || !giftCardCode) return;
     await completePayment([
-      { method: 'OTHER', amount: order.total, reference: giftCardCode },
+      { method: 'OTHER', amount: latestOrder.total, reference: giftCardCode },
     ]);
   }
 
@@ -411,22 +543,30 @@ export default function SellPage() {
 
   async function handlePayLater() {
     if (!order?.lines.length) return;
-    setSyncing(true);
+    setPaying(true);
     setPayError(null);
     setStockErrors([]);
     setPaySuccess(null);
 
     try {
+      await waitForCartSync();
+
       const validationError = validateRegisterCustomer();
       if (validationError) {
         setPayError(validationError);
         return;
       }
-      await syncCustomer(order.id);
-      const result = await withAuth((client) => client.deferOrder(order.id));
+
+      const customerKey = hashRegisterCustomer(registerCustomer);
+      if (customerKey !== customerSyncedRef.current) {
+        await syncCustomer(order.id);
+      }
+
+      const latestOrder = useCartStore.getState().order ?? order;
+      const result = await withAuth((client) => client.deferOrder(latestOrder.id));
 
       setOrder({
-        ...order,
+        ...latestOrder,
         status: result.order.status,
         cogsTotal: result.order.cogsTotal,
         deferredAt: result.order.deferredAt,
@@ -459,7 +599,7 @@ export default function SellPage() {
         setPayError(err instanceof Error ? err.message : 'Could not send to kitchen');
       }
     } finally {
-      setSyncing(false);
+      setPaying(false);
     }
   }
 
@@ -569,7 +709,7 @@ export default function SellPage() {
                 items={activeCategory.items}
                 activeCategory={activeCategory.name}
                 onSelectItem={handleSelectItem}
-                disabled={isOrderLocked || isSyncing}
+                disabled={isOrderLocked || isPaying}
               />
             ) : (
               <p className="text-sm text-ink-muted">Loading menu…</p>
@@ -580,6 +720,7 @@ export default function SellPage() {
         <CartPanel
           order={order}
           isSyncing={isSyncing}
+          isPaying={isPaying}
           payError={payError}
           stockErrors={stockErrors}
           registerCustomer={registerCustomer}
@@ -609,22 +750,23 @@ export default function SellPage() {
         <ModifierSheet
           item={pending.item}
           onClose={() => setPending(null)}
-          onAdd={(payload) =>
-            addLine({
+          onAdd={(payload) => {
+            setPending(null);
+            void addLine({
               menuItemId: pending.item.id,
               sizeId: payload.sizeId,
               quantity: 1,
               modifierIds: payload.modifierIds,
               notes: payload.notes,
-            })
-          }
+            });
+          }}
         />
       ) : null}
 
       {showSplitPay && order?.lines.length ? (
         <SplitPaySheet
           order={order}
-          isSyncing={isSyncing}
+          isSyncing={isPaying}
           onClose={() => setShowSplitPay(false)}
           onConfirm={handleSplitPayConfirm}
         />

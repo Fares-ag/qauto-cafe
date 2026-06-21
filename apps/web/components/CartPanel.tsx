@@ -10,6 +10,7 @@ import {
 interface CartPanelProps {
   order: Order | null;
   isSyncing: boolean;
+  isPaying: boolean;
   payError: string | null;
   stockErrors: Array<{ ingredientName: string; required: string; available: string; uom: string }>;
   registerCustomer: RegisterCustomerValue;
@@ -37,6 +38,7 @@ interface CartPanelProps {
 export function CartPanel({
   order,
   isSyncing,
+  isPaying,
   payError,
   stockErrors,
   registerCustomer,
@@ -65,6 +67,8 @@ export function CartPanel({
     order?.status === 'PENDING_PAYMENT' ||
     Boolean(order?.deferredAt);
 
+  const isCheckoutBusy = isSyncing || isPaying;
+
   const hasDiscount = order?.discounts && order.discounts.length > 0;
 
   return (
@@ -81,9 +85,14 @@ export function CartPanel({
           ) : null}
         </div>
         {order?.lines.length && !isLocked ? (
-          <Button variant="ghost" size="sm" onClick={onClear}>
-            Clear
-          </Button>
+          <div className="flex items-center gap-2">
+            {isSyncing ? (
+              <span className="text-xs font-medium text-ink-muted">Syncing…</span>
+            ) : null}
+            <Button variant="ghost" size="sm" onClick={onClear}>
+              Clear
+            </Button>
+          </div>
         ) : null}
       </div>
 
@@ -91,7 +100,7 @@ export function CartPanel({
         <RegisterCustomerPanel
           value={registerCustomer}
           onChange={onRegisterCustomerChange}
-          disabled={isSyncing}
+          disabled={isCheckoutBusy}
         />
       ) : null}
 
@@ -208,16 +217,16 @@ export function CartPanel({
                 label="Cash"
                 icon="💵"
                 variant="primary"
-                disabled={!order?.lines.length}
-                loading={isSyncing}
+                disabled={!order?.lines.length || isCheckoutBusy}
+                loading={isPaying}
                 onClick={() => onPay('CASH')}
               />
               <ActionTile
                 label="Card"
                 icon="💳"
                 variant="accent"
-                disabled={!order?.lines.length}
-                loading={isSyncing}
+                disabled={!order?.lines.length || isCheckoutBusy}
+                loading={isPaying}
                 onClick={() => onPay('CARD')}
               />
             </div>
@@ -226,8 +235,8 @@ export function CartPanel({
               variant="ghost"
               size="lg"
               className="w-full border border-dashed border-border"
-              disabled={!order?.lines.length || isSyncing}
-              loading={isSyncing}
+              disabled={!order?.lines.length || isCheckoutBusy}
+              loading={isPaying}
               onClick={onPayLater}
             >
               Send to kitchen · pay later
@@ -239,7 +248,7 @@ export function CartPanel({
                   variant="ghost"
                   size="lg"
                   className="w-full"
-                  disabled={!order?.lines.length || isSyncing}
+                  disabled={!order?.lines.length || isCheckoutBusy}
                   onClick={onSplitPay}
                 >
                   Split payment
@@ -254,8 +263,8 @@ export function CartPanel({
                   variant="ghost"
                   size="lg"
                   className="w-full"
-                  disabled={!order?.lines.length || isSyncing || !giftCardCode}
-                  loading={isSyncing}
+                  disabled={!order?.lines.length || isCheckoutBusy || !giftCardCode}
+                  loading={isPaying}
                   onClick={onPayWithGiftCard}
                 >
                   Pay with gift card

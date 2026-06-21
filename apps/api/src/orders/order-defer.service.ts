@@ -113,19 +113,21 @@ export class OrderDeferService {
       this.orderQueue.buildPaidEvent(updated),
     );
 
-    await this.audit.log({
-      organizationId,
-      branchId: updated.branchId,
-      userId,
-      action: 'UPDATE',
-      entityType: 'order',
-      entityId: updated.id,
-      afterState: {
-        total: decimalToString(updated.total),
-        orderNumber: updated.orderNumber,
-        status: updated.status,
-      },
-    });
+    void this.audit
+      .log({
+        organizationId,
+        branchId: updated.branchId,
+        userId,
+        action: 'UPDATE',
+        entityType: 'order',
+        entityId: updated.id,
+        afterState: {
+          total: decimalToString(updated.total),
+          orderNumber: updated.orderNumber,
+          status: updated.status,
+        },
+      })
+      .catch(() => undefined);
 
     return {
       order: {

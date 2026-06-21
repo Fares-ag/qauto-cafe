@@ -82,6 +82,7 @@ export class MenuService {
             description: item.description,
             imageUrl: item.imageUrl,
             basePrice: this.decimalToString(price),
+            taxRate: this.decimalToString(item.taxRate),
             is86: availability?.is86 ?? false,
             isAvailable: availability?.isAvailable ?? true,
             sizes: item.sizes.map((size) => ({

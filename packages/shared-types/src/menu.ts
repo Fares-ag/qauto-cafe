@@ -30,6 +30,7 @@ export interface MenuCatalogItem {
   description: string | null;
   imageUrl: string | null;
   basePrice: string;
+  taxRate: string;
   is86: boolean;
   isAvailable: boolean;
   sizes: MenuSize[];

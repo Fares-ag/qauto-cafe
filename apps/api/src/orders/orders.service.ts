@@ -189,12 +189,21 @@ export class OrdersService {
   }
 
   async addLineToOrder(orderId: string, organizationId: string, input: OrderLineInputDto) {
-    const order = await this.getDraftOrder(orderId, organizationId);
-    const existing = await this.prisma.orderLine.findMany({
-      where: { orderId },
-      orderBy: { sortOrder: 'asc' },
-      include: { modifiers: true },
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, organizationId, status: 'DRAFT' },
+      include: {
+        lines: {
+          orderBy: { sortOrder: 'asc' },
+          include: { modifiers: true },
+        },
+      },
     });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const existing = order.lines;
 
     const resolved = await this.resolveLine(order.branchId, input, existing.length);
     const match = existing.find((line) => this.linesMatch(line, input));

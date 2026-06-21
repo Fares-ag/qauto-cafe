@@ -15,10 +15,12 @@ interface CartState {
   order: Order | null;
   pending: PendingLine | null;
   isSyncing: boolean;
+  isPaying: boolean;
   setCatalog: (catalog: MenuCatalog) => void;
   setOrder: (order: Order | null) => void;
   setPending: (pending: PendingLine | null) => void;
   setSyncing: (value: boolean) => void;
+  setPaying: (value: boolean) => void;
   localLines: CartLineInput[];
   setLocalLines: (lines: CartLineInput[]) => void;
   reset: () => void;
@@ -29,11 +31,13 @@ export const useCartStore = create<CartState>((set) => ({
   order: null,
   pending: null,
   isSyncing: false,
+  isPaying: false,
   localLines: [],
   setCatalog: (catalog) => set({ catalog }),
   setOrder: (order) => set({ order }),
   setPending: (pending) => set({ pending }),
   setSyncing: (isSyncing) => set({ isSyncing }),
+  setPaying: (isPaying) => set({ isPaying }),
   setLocalLines: (localLines) => set({ localLines }),
   reset: () =>
     set({
@@ -41,6 +45,7 @@ export const useCartStore = create<CartState>((set) => ({
       order: null,
       pending: null,
       isSyncing: false,
+      isPaying: false,
       localLines: [],
     }),
 }));

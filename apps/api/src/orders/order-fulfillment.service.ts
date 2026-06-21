@@ -117,10 +117,9 @@ export class OrderFulfillmentService {
       }
     }, PRISMA_TX_OPTIONS);
 
-    await this.eightySix.propagateAfterConsumption(
-      order.branchId,
-      Array.from(consumedIngredientIds),
-    );
+    void this.eightySix
+      .propagateAfterConsumption(order.branchId, Array.from(consumedIngredientIds))
+      .catch(() => undefined);
 
     return { orderCogs, consumedIngredientIds: Array.from(consumedIngredientIds) };
   }

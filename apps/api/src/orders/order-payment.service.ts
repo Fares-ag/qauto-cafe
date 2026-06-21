@@ -278,34 +278,30 @@ export class OrderPaymentService {
       throw error;
     }
 
-    const paidOrder = await this.prisma.order.findFirst({
-      where: { id: order.id, organizationId },
-      include: {
-        lines: {
-          orderBy: { sortOrder: 'asc' },
-          include: { modifiers: true },
-        },
-      },
-    });
+    const paidAt = new Date();
 
-    if (paidOrder) {
-      if (isDraft) {
-        this.domainEvents.emitOrderPaid(
-          paidOrder.branchId,
-          this.orderQueue.buildPaidEvent(paidOrder),
-        );
-      }
-      this.jobs.scheduleOrderAggregation(paidOrder.id, 'order_paid');
-      await this.audit.log({
+    if (isDraft) {
+      this.domainEvents.emitOrderPaid(
+        order.branchId,
+        this.orderQueue.buildPaidEvent({
+          ...order,
+          status: 'PAID',
+          paidAt,
+        }),
+      );
+    }
+    this.jobs.scheduleOrderAggregation(order.id, 'order_paid');
+    void this.audit
+      .log({
         organizationId,
-        branchId: paidOrder.branchId,
+        branchId: order.branchId,
         userId,
         action: 'PAY',
         entityType: 'order',
-        entityId: paidOrder.id,
-        afterState: { total: decimalToString(paidOrder.total), orderNumber: paidOrder.orderNumber },
-      });
-    }
+        entityId: order.id,
+        afterState: { total: decimalToString(order.total), orderNumber: order.orderNumber },
+      })
+      .catch(() => undefined);
 
     return this.buildPayResponse(order.id, organizationId);
   }
@@ -413,12 +409,13 @@ export class OrderPaymentService {
       where: { id: orderId, organizationId },
       include: {
         lines: {
-          include: {
-            modifiers: true,
-            bomSnapshot: { include: { lines: { include: { allocations: true } } } },
+          orderBy: { sortOrder: 'asc' },
+          select: {
+            id: true,
+            itemName: true,
+            lineCogs: true,
           },
         },
-        payments: true,
         receipts: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
     });
@@ -439,11 +436,6 @@ export class OrderPaymentService {
         orderLineId: line.id,
         itemName: line.itemName,
         cogs: decimalToString(line.lineCogs),
-        ingredients: line.bomSnapshot?.lines.map((l) => ({
-          name: l.ingredientName,
-          quantity: decimalToString(l.quantity),
-          cost: decimalToString(l.extendedCost),
-        })),
       })),
     };
   }
