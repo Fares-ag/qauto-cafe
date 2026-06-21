@@ -12,7 +12,6 @@ import { OrdersModule } from './orders/orders.module';
 import { PublicModule } from './public/public.module';
 import { RecipeModule } from './recipe/recipe.module';
 import { InventoryModule } from './inventory/inventory.module';
-import { RedisModule } from './redis/redis.module';
 import { EventsModule } from './events/events.module';
 import { WsModule } from './ws/ws.module';
 import { ShiftsModule } from './shifts/shifts.module';
@@ -40,7 +39,6 @@ import { APP_GUARD } from '@nestjs/core';
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 30 }]),
     CommonModule,
     PrismaModule,
-    RedisModule,
     EventsModule,
     AuditModule,
     AuthModule,

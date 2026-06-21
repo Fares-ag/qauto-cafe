@@ -1,41 +1,21 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { CacheService } from '../cache/cache.service';
 import { PrismaService } from '../prisma/prisma.service';
-
-const CATALOG_TTL_SECONDS = 300;
-
-export function menuCatalogCacheKey(branchId: string) {
-  return `menu:catalog:${branchId}`;
-}
 
 @Injectable()
 export class MenuService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly cache: CacheService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async getCatalog(branchId: string) {
-    const cacheKey = menuCatalogCacheKey(branchId);
-    const cached = await this.cache.get<Awaited<ReturnType<MenuService['buildCatalog']>>>(cacheKey);
-    if (cached) return cached;
-
-    const catalog = await this.buildCatalog(branchId);
-    await this.cache.set(cacheKey, catalog, CATALOG_TTL_SECONDS);
-    return catalog;
+    return this.buildCatalog(branchId);
   }
 
-  async invalidateCatalog(branchId: string) {
-    await this.cache.del(menuCatalogCacheKey(branchId));
+  async invalidateCatalog(_branchId: string) {
+    // No server-side cache — clients refetch from the database via the API.
   }
 
-  async invalidateOrgCatalog(organizationId: string) {
-    const branches = await this.prisma.branch.findMany({
-      where: { organizationId, deletedAt: null },
-      select: { id: true },
-    });
-    await this.cache.delMany(branches.map((b) => menuCatalogCacheKey(b.id)));
+  async invalidateOrgCatalog(_organizationId: string) {
+    // No server-side cache — clients refetch from the database via the API.
   }
 
   private async buildCatalog(branchId: string) {

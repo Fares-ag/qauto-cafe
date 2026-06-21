@@ -4,8 +4,9 @@ import { getApiClient } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 import { ensureTerminal } from '@/lib/terminal';
 
-const MENU_STALE_MS = 5 * 60_000;
-const SHIFT_STALE_MS = 30_000;
+const MENU_STALE_MS = 0;
+const SHIFT_STALE_MS = 0;
+const LIVE_POLL_MS = 5_000;
 
 export function useMenuCatalog(branchId: string | null) {
   return useQuery({
@@ -30,6 +31,17 @@ export function usePosBootstrap(branchId: string | null) {
     },
     enabled: Boolean(branchId),
     staleTime: SHIFT_STALE_MS,
+    refetchInterval: LIVE_POLL_MS,
+  });
+}
+
+export function useOrderQueue(branchId: string | null, refetchInterval = LIVE_POLL_MS) {
+  return useQuery({
+    queryKey: queryKeys.orderQueue(branchId ?? ''),
+    queryFn: () => getApiClient().getOrderQueue(branchId!),
+    enabled: Boolean(branchId),
+    staleTime: 0,
+    refetchInterval,
   });
 }
 
@@ -50,8 +62,8 @@ export function useNavBadges(branchId: string | null) {
       };
     },
     enabled: Boolean(branchId),
-    staleTime: 60_000,
-    refetchInterval: 60_000,
+    staleTime: 0,
+    refetchInterval: LIVE_POLL_MS,
   });
 }
 
@@ -84,8 +96,8 @@ export function useDashboardData(branchId: string | null, businessDate: string) 
       };
     },
     enabled: Boolean(branchId),
-    staleTime: 60_000,
-    refetchInterval: 60_000,
+    staleTime: 0,
+    refetchInterval: LIVE_POLL_MS,
   });
 }
 
@@ -98,7 +110,7 @@ export function useOrdersList(branchId: string | null, statusFilter: string) {
         limit: 50,
       }),
     enabled: Boolean(branchId),
-    staleTime: 15_000,
-    refetchInterval: 15_000,
+    staleTime: 0,
+    refetchInterval: LIVE_POLL_MS,
   });
 }

@@ -3,15 +3,8 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
-import { CacheService } from '../../cache/cache.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JwtPayload, AuthenticatedUser } from '../types/authenticated-user.type';
-
-const AUTH_USER_TTL_SECONDS = 120;
-
-export function authUserCacheKey(userId: string) {
-  return `auth:user:${userId}`;
-}
 
 function cookieExtractor(config: ConfigService) {
   return (req: Request): string | null => {
@@ -25,7 +18,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     config: ConfigService,
     private readonly prisma: PrismaService,
-    private readonly cache: CacheService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
@@ -38,16 +30,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
-    const cacheKey = authUserCacheKey(payload.sub);
-    const cached = await this.cache.get<Omit<AuthenticatedUser, 'terminalId' | 'branchId'>>(cacheKey);
-    if (cached) {
-      return {
-        ...cached,
-        terminalId: payload.terminalId,
-        branchId: payload.branchId,
-      };
-    }
-
     const user = await this.prisma.user.findFirst({
       where: { id: payload.sub, status: 'ACTIVE', deletedAt: null },
       include: {
@@ -63,7 +45,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('User not found or inactive');
     }
 
-    const authenticated: AuthenticatedUser = {
+    return {
       id: user.id,
       organizationId: user.organizationId,
       roleId: user.roleId,
@@ -74,10 +56,5 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       terminalId: payload.terminalId,
       branchId: payload.branchId,
     };
-
-    const { terminalId: _t, branchId: _b, ...cacheable } = authenticated;
-    await this.cache.set(cacheKey, cacheable, AUTH_USER_TTL_SECONDS);
-
-    return authenticated;
   }
 }

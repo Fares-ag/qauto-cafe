@@ -1,85 +1,25 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { OrderStatus, QueueOrder } from '@qauto/shared-types';
+import { useMemo, useState } from 'react';
+import type { OrderStatus } from '@qauto/shared-types';
+import { useQueryClient } from '@tanstack/react-query';
 import { Alert, Badge, Button, useToast } from '@qauto/ui';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import { QueueColumn } from '@/components/QueueBoard';
 import { useAuthStore } from '@/lib/auth-store';
 import { withAuth } from '@/lib/api';
+import { useOrderQueue } from '@/lib/queries';
+import { queryKeys } from '@/lib/query-keys';
 import { useUiStore } from '@/lib/ui-store';
-import {
-  applyStatusChange,
-  connectQueueSocket,
-  paidEventToQueueOrder,
-  removeQueueOrder,
-} from '@/lib/ws';
 
 export default function KitchenPage() {
+  const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { branchId, accessToken } = useAuthStore();
+  const { branchId } = useAuthStore();
   const { kitchenDisplayMode, setKitchenDisplayMode } = useUiStore();
-  const [orders, setOrders] = useState<QueueOrder[]>([]);
-  const [connected, setConnected] = useState(false);
+  const { data: orders = [], error, isFetching } = useOrderQueue(branchId, 3_000);
   const [bumpingId, setBumpingId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadQueue = useCallback(async () => {
-    if (!branchId) return;
-    const queue = await withAuth((client) => client.getOrderQueue(branchId));
-    setOrders(queue);
-  }, [branchId]);
-
-  useEffect(() => {
-    if (!accessToken || !branchId) return;
-
-    let socket: Awaited<ReturnType<typeof connectQueueSocket>> | null = null;
-    let cancelled = false;
-
-    loadQueue().catch((err) => {
-      setError(err instanceof Error ? err.message : 'Failed to load queue');
-    });
-
-    connectQueueSocket(accessToken, branchId, {
-      onSnapshot: (snapshot) => setOrders(snapshot.orders),
-      onOrderPaid: (event) => {
-        setOrders((current) => {
-          const incoming = paidEventToQueueOrder(event);
-          const without = current.filter((o) => o.id !== incoming.id);
-          return [...without, incoming].sort((a, b) => a.orderNumber - b.orderNumber);
-        });
-      },
-      onStatusChanged: (event) => {
-        setOrders((current) => applyStatusChange(current, event));
-      },
-      onOrderVoided: (event) => {
-        setOrders((current) => removeQueueOrder(current, event.orderId));
-      },
-      onConnectionChange: setConnected,
-    })
-      .then((s) => {
-        if (cancelled) {
-          s.disconnect();
-          return;
-        }
-        socket = s;
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Failed to connect live queue');
-      });
-
-    const poll = setInterval(() => {
-      if (!connected) {
-        loadQueue().catch(() => undefined);
-      }
-    }, 15000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(poll);
-      socket?.disconnect();
-    };
-  }, [accessToken, branchId, loadQueue, connected]);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const grouped = useMemo(
     () => ({
@@ -91,23 +31,21 @@ export default function KitchenPage() {
   );
 
   async function handleBump(orderId: string, status: OrderStatus) {
+    if (!branchId) return;
     setBumpingId(orderId);
-    setError(null);
+    setActionError(null);
     try {
-      const updated = await withAuth((client) => client.updateOrderStatus(orderId, status));
-      setOrders((current) => {
-        if (updated.status === 'COMPLETED') {
-          return current.filter((o) => o.id !== orderId);
-        }
-        return current.map((o) => (o.id === orderId ? updated : o));
-      });
+      await withAuth((client) => client.updateOrderStatus(orderId, status));
+      await queryClient.invalidateQueries({ queryKey: queryKeys.orderQueue(branchId) });
       toast('Order updated', 'success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update order');
+      setActionError(err instanceof Error ? err.message : 'Failed to update order');
     } finally {
       setBumpingId(null);
     }
   }
+
+  const loadError = error instanceof Error ? error.message : null;
 
   return (
     <div className={kitchenDisplayMode ? 'space-y-6' : 'space-y-4'}>
@@ -119,8 +57,8 @@ export default function KitchenPage() {
           <p className="text-sm text-ink-muted">Tap the button on each ticket to move it forward</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={connected ? 'success' : 'neutral'}>
-            {connected ? '● Live' : '○ Polling'}
+          <Badge variant={isFetching ? 'accent' : 'neutral'}>
+            {isFetching ? '↻ Syncing' : '● Live from database'}
           </Badge>
           <Badge variant="accent">{orders.length} active</Badge>
           <Button
@@ -135,7 +73,8 @@ export default function KitchenPage() {
         </div>
       </div>
 
-      {error ? <Alert variant="error">{error}</Alert> : null}
+      {loadError ? <Alert variant="error">{loadError}</Alert> : null}
+      {actionError ? <Alert variant="error">{actionError}</Alert> : null}
 
       <div className={`grid gap-4 ${kitchenDisplayMode ? 'lg:grid-cols-3 lg:gap-6' : 'lg:grid-cols-3'}`}>
         <QueueColumn

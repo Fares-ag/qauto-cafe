@@ -1,14 +1,12 @@
 import { Controller, Get, Headers, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { RedisService } from '../redis/redis.service';
 import type { HealthResponse } from '@qauto/shared-types';
 
 @Controller('health')
 export class HealthController {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redis: RedisService,
     private readonly config: ConfigService,
   ) {}
 
@@ -37,15 +35,12 @@ export class HealthController {
       database = 'down';
     }
 
-    const redisUp = await this.redis.ping();
-    const status = database === 'up' ? (redisUp ? 'ok' : 'degraded') : 'error';
-
     return {
-      status,
+      status: database === 'up' ? 'ok' : 'error',
       timestamp: new Date().toISOString(),
       services: {
         database,
-        redis: redisUp ? 'up' : 'down',
+        redis: 'skipped',
       },
     };
   }

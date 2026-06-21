@@ -1,10 +1,8 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { CacheService } from '../cache/cache.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { decimalToString } from '../common/utils/decimal.util';
-import { menuCatalogCacheKey } from './menu.service';
 import {
   CreateMenuCategoryDto,
   CreateMenuItemDto,
@@ -24,20 +22,10 @@ export class MenuAdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly cache: CacheService,
   ) {}
 
-  private async bustCatalog(branchId?: string, organizationId?: string) {
-    if (branchId) {
-      await this.cache.del(menuCatalogCacheKey(branchId));
-      return;
-    }
-    if (!organizationId) return;
-    const branches = await this.prisma.branch.findMany({
-      where: { organizationId, deletedAt: null },
-      select: { id: true },
-    });
-    await this.cache.delMany(branches.map((b) => menuCatalogCacheKey(b.id)));
+  private async bustCatalog(_branchId?: string, _organizationId?: string) {
+    // No server-side cache — clients refetch from the database via the API.
   }
 
   async listItems(organizationId: string, branchId: string) {

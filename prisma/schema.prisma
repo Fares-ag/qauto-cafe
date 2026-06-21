@@ -1296,7 +1296,7 @@ model GiftCard {
 }
 
 // =============================================================================
-// REPORTING AGGREGATES (populated by BullMQ jobs)
+// REPORTING AGGREGATES (populated after pay/void/refund)
 // =============================================================================
 
 model DailySalesSummary {

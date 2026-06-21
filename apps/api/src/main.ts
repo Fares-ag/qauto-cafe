@@ -6,7 +6,7 @@ import { AppModule } from './app.module';
 import { ProblemDetailsFilter } from './common/filters/problem-details.filter';
 import { validateProductionConfig } from './config/validate-config';
 import { applySecurityMiddleware } from './config/security';
-import { RedisIoAdapter } from './ws/redis-io.adapter';
+import { SocketIoAdapter } from './ws/socket-io.adapter';
 
 async function bootstrap() {
   validateProductionConfig();
@@ -19,9 +19,8 @@ async function bootstrap() {
 
   applySecurityMiddleware(app);
 
-  const redisIoAdapter = new RedisIoAdapter(app, config);
-  await redisIoAdapter.connectToRedis();
-  app.useWebSocketAdapter(redisIoAdapter);
+  const socketAdapter = new SocketIoAdapter(app, config);
+  app.useWebSocketAdapter(socketAdapter);
 
   app.setGlobalPrefix('api/v1');
   app.use(cookieParser());

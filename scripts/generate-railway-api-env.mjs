@@ -6,7 +6,6 @@
  * Usage:
  *   node scripts/generate-railway-api-env.mjs
  *   node scripts/generate-railway-api-env.mjs --cors-origin https://your-app.vercel.app
- *   node scripts/generate-railway-api-env.mjs --redis-url rediss://default:...@....upstash.io:6379
  */
 import { randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -53,7 +52,6 @@ if (!existsSync(envPath)) {
 
 const local = parseEnv(readFileSync(envPath, 'utf8'));
 const corsOrigin = arg('--cors-origin') ?? 'https://qauto-cafe.vercel.app';
-const redisUrl = arg('--redis-url') ?? local.REDIS_URL ?? '';
 
 const required = ['DATABASE_URL', 'DIRECT_URL'];
 const missing = required.filter((k) => !local[k]?.trim());
@@ -69,7 +67,6 @@ if (local.DATABASE_URL.includes('localhost')) {
 
 const lines = [
   'NODE_ENV=production',
-  'WORKER_ENABLED=true',
   `DATABASE_URL=${local.DATABASE_URL}`,
   `DIRECT_URL=${local.DIRECT_URL}`,
   `JWT_ACCESS_SECRET=${secret()}`,
@@ -77,14 +74,6 @@ const lines = [
   `TERMINAL_ENROLLMENT_SECRET=${secret(24)}`,
   `CORS_ORIGIN=${corsOrigin}`,
 ];
-
-if (redisUrl && !redisUrl.includes('localhost')) {
-  lines.push(`REDIS_URL=${redisUrl}`);
-} else {
-  console.warn(
-    'WARN: No production REDIS_URL — add Upstash (free) and re-run with --redis-url, or set REDIS_URL in Railway after deploy.',
-  );
-}
 
 writeFileSync(outPath, `${lines.join('\n')}\n`, 'utf8');
 console.log(`Wrote ${outPath}`);

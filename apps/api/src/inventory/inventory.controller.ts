@@ -1,6 +1,5 @@
 import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { CacheService } from '../cache/cache.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -14,12 +13,6 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 import { BranchAccessService } from '../common/services/branch-access.service';
 
-const STOCK_CACHE_TTL_SECONDS = 30;
-
-export function inventoryStockCacheKey(branchId: string) {
-  return `inventory:stock:${branchId}`;
-}
-
 @Controller('inventory')
 @UseGuards(JwtAuthGuard, PermissionsGuard, BranchAccessGuard)
 export class InventoryController {
@@ -28,7 +21,6 @@ export class InventoryController {
     private readonly inventoryOps: InventoryOpsService,
     private readonly branchAccess: BranchAccessService,
     private readonly uom: UomConversionService,
-    private readonly cache: CacheService,
   ) {}
 
   @Get('uoms')
@@ -41,15 +33,7 @@ export class InventoryController {
   @Permissions('stock.view', 'inventory.manage')
   async getStock(@CurrentUser() user: AuthenticatedUser, @Query('branchId') branchId: string) {
     await this.branchAccess.assertUserBranchAccess(user, branchId);
-
-    const cacheKey = inventoryStockCacheKey(branchId);
-    type StockResponse = Awaited<ReturnType<InventoryController['buildStock']>>;
-    const cached = await this.cache.get<StockResponse>(cacheKey);
-    if (cached) return cached;
-
-    const result = await this.buildStock(user.organizationId, branchId);
-    await this.cache.set(cacheKey, result, STOCK_CACHE_TTL_SECONDS);
-    return result;
+    return this.buildStock(user.organizationId, branchId);
   }
 
   private async buildStock(organizationId: string, branchId: string) {
@@ -167,36 +151,25 @@ export class InventoryController {
   @Post('receive')
   @Permissions('stock.receive', 'inventory.manage')
   async receive(@CurrentUser() user: AuthenticatedUser, @Body() dto: ReceiveStockDto) {
-    const result = await this.inventoryOps.receive(user.organizationId, user.id, dto);
-    await this.cache.del(inventoryStockCacheKey(dto.branchId));
-    return result;
+    return this.inventoryOps.receive(user.organizationId, user.id, dto);
   }
 
   @Post('waste')
   @Permissions('stock.waste', 'inventory.manage')
   async waste(@CurrentUser() user: AuthenticatedUser, @Body() dto: WasteStockDto) {
-    const result = await this.inventoryOps.waste(user.organizationId, user.id, dto);
-    await this.cache.del(inventoryStockCacheKey(dto.branchId));
-    return result;
+    return this.inventoryOps.waste(user.organizationId, user.id, dto);
   }
 
   @Post('adjust')
   @Permissions('stock.adjust', 'inventory.manage')
   async adjust(@CurrentUser() user: AuthenticatedUser, @Body() dto: AdjustStockDto) {
-    const result = await this.inventoryOps.adjust(user.organizationId, user.id, dto);
-    await this.cache.del(inventoryStockCacheKey(dto.branchId));
-    return result;
+    return this.inventoryOps.adjust(user.organizationId, user.id, dto);
   }
 
   @Post('transfer')
   @Permissions('inventory.manage')
   async transfer(@CurrentUser() user: AuthenticatedUser, @Body() dto: TransferStockDto) {
-    const result = await this.inventoryOps.transfer(user.organizationId, user.id, dto);
-    await Promise.all([
-      this.cache.del(inventoryStockCacheKey(dto.fromBranchId)),
-      this.cache.del(inventoryStockCacheKey(dto.toBranchId)),
-    ]);
-    return result;
+    return this.inventoryOps.transfer(user.organizationId, user.id, dto);
   }
 
   @Get('low-stock')

@@ -1,14 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { CacheService } from '../cache/cache.service';
-import { menuCatalogCacheKey } from '../menu/menu.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class EightySixService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly cache: CacheService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async propagateAfterConsumption(branchId: string, ingredientIds: string[]) {
     for (const ingredientId of ingredientIds) {
@@ -63,10 +58,6 @@ export class EightySixService {
         update: { is86 },
         create: { branchId, menuItemId, is86, isAvailable: true },
       });
-    }
-
-    if (menuItemIds.size > 0) {
-      await this.cache.del(menuCatalogCacheKey(branchId));
     }
   }
 }

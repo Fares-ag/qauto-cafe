@@ -5,9 +5,6 @@ import { useAuthStore } from './auth-store';
 
 export const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '/api/v1';
 
-export const wsBase =
-  process.env.NEXT_PUBLIC_WS_URL?.replace(/\/ws\/?$/, '') ?? 'http://localhost:3001';
-
 function createBareClient() {
   return new ApiClient({
     baseUrl,

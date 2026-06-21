@@ -8,11 +8,9 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { CryptoService } from '../common/crypto.service';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { PinLockoutService } from './pin-lockout.service';
-import { RedisModule } from '../redis/redis.module';
 
 @Module({
   imports: [
-    RedisModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       inject: [ConfigService],

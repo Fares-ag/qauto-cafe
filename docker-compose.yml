@@ -16,20 +16,6 @@ services:
     networks:
       - internal
 
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD:-redis-dev-password}
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD:-redis-dev-password}', 'ping']
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - internal
-
   api:
     build:
       context: .
@@ -40,18 +26,14 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-qauto_cafe}?schema=public
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis-dev-password}@redis:6379
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET is required}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}
       TERMINAL_ENROLLMENT_SECRET: ${TERMINAL_ENROLLMENT_SECRET:?TERMINAL_ENROLLMENT_SECRET is required}
       HEALTH_CHECK_SECRET: ${HEALTH_CHECK_SECRET:-}
-      WORKER_ENABLED: ${WORKER_ENABLED:-true}
       PORT: 3001
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     networks:
       - internal
@@ -81,4 +63,3 @@ networks:
 
 volumes:
   postgres_data:
-  redis_data:
