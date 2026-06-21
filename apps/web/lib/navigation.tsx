@@ -6,6 +6,7 @@ import {
   ClipboardList,
   ChefHat,
   Coffee,
+  DollarSign,
   LayoutDashboard,
   Package,
   Settings,
@@ -53,7 +54,8 @@ const MANAGER_NAV: NavGroup[] = [
     label: 'Business',
     items: [
       { id: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: <LayoutDashboard size={ICON_SIZE} /> },
-      { id: 'reports', label: 'Reports', href: '/reports', icon: <BarChart3 size={ICON_SIZE} /> },
+      { id: 'finance', label: 'Finance', href: '/finance', icon: <DollarSign size={ICON_SIZE} /> },
+      { id: 'reports', label: 'Report center', href: '/reports', icon: <BarChart3 size={ICON_SIZE} /> },
       { id: 'customers', label: 'Customers', href: '/customers', icon: <Users size={ICON_SIZE} /> },
     ],
   },

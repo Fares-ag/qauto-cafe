@@ -6,7 +6,7 @@ test('login → sell → defer → kitchen → collect payment', async ({ page }
   await page.goto('/sell');
   await page.getByRole('button', { name: 'Open shift' }).click({ timeout: 10000 }).catch(() => {});
 
-  await page.waitForSelector('text=Sell', { timeout: 15000 });
+  await page.waitForSelector('text=Register', { timeout: 15000 });
 
   const menuItem = page.locator('button').filter({ hasText: /Latte|Americano|Croissant/i }).first();
   await menuItem.click({ timeout: 15000 });
@@ -17,8 +17,7 @@ test('login → sell → defer → kitchen → collect payment', async ({ page }
     await page.getByRole('button', { name: /Add to order|Add/i }).click();
   }
 
-  await page.getByRole('button', { name: 'More payment options' }).click();
-  await page.getByRole('button', { name: 'Pay later · send to kitchen' }).click();
+  await page.getByRole('button', { name: /Send to kitchen · pay later/i }).click();
   await expect(page.getByText(/sent to kitchen|payment pending/i)).toBeVisible({ timeout: 30000 });
 
   await page.goto('/orders');

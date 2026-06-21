@@ -114,6 +114,18 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  scheduleOrderAggregation(
+    orderId: string,
+    action: AggregationAction,
+    options: AggregationOptions = {},
+  ) {
+    void this.enqueueOrderAggregation(orderId, action, options).catch((error) => {
+      this.logger.error(
+        `Aggregation ${action} for order ${orderId} failed: ${error instanceof Error ? error.message : error}`,
+      );
+    });
+  }
+
   async onModuleDestroy() {
     await this.worker?.close();
     await this.queue?.close();

@@ -94,7 +94,7 @@ export async function loginWithPin(page: Page, pin = '1234') {
 export async function sellOneItemAndPayCash(page: Page) {
   await page.goto('/sell');
   await page.getByRole('button', { name: 'Open shift' }).click({ timeout: 10000 }).catch(() => {});
-  await page.getByRole('heading', { name: /^Sell$/i }).waitFor({ timeout: 15000 });
+  await page.getByRole('heading', { name: /^Register$/i }).waitFor({ timeout: 15000 });
 
   const menuItem = page.locator('button').filter({ hasText: /Latte|Americano|Croissant/i }).first();
   await menuItem.click({ timeout: 15000 });
@@ -105,8 +105,7 @@ export async function sellOneItemAndPayCash(page: Page) {
     await page.getByRole('button', { name: /Add to order|Add/i }).click();
   }
 
-  await page.getByRole('button', { name: 'More payment options' }).click();
-  await page.getByRole('button', { name: 'Pay later · send to kitchen' }).click();
+  await page.getByRole('button', { name: /Send to kitchen · pay later/i }).click();
   await expect(page.getByText(/sent to kitchen|payment pending/i)).toBeVisible({ timeout: 30000 });
 
   await page.goto('/orders');

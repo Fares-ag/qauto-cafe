@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ApiClient } from '@qauto/api-client';
+import { ApiClient, ApiError } from '@qauto/api-client';
 import { Alert, Button, Card, Input } from '@qauto/ui';
 import { useAuthStore } from '@/lib/auth-store';
 import { baseUrl } from '@/lib/api';
@@ -26,17 +26,23 @@ export default function AdminLoginPage() {
     setError(null);
     try {
       const client = new ApiClient({ baseUrl });
-      const bootstrap = await client.getBootstrap();
       const res = await client.login(email, password);
       setSession({
         accessToken: res.accessToken,
         user: res.user,
-        branchId: res.branchId ?? bootstrap.branch?.id,
+        branchId: res.branchId,
         sessionType: 'manager',
       });
       router.push('/dashboard');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      if (err instanceof ApiError) {
+        const fieldMessages = err.body.errors?.map((e) => e.message).filter(Boolean);
+        setError(fieldMessages?.length ? fieldMessages.join(' · ') : err.body.detail);
+      } else if (err instanceof TypeError) {
+        setError('Cannot reach the API. Ensure the dev server is running (npm run dev).');
+      } else {
+        setError(err instanceof Error ? err.message : 'Login failed');
+      }
     } finally {
       setLoading(false);
     }

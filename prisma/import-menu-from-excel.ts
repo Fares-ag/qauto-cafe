@@ -15,6 +15,7 @@ import {
   type MenuRowInput,
   type RecipeLineInput,
 } from './data/cafe-menu';
+import { resolveMenuImageUrl } from './data/menu-images';
 
 const prisma = new PrismaClient();
 const DRY_RUN = process.argv.includes('--dry-run');
@@ -471,6 +472,7 @@ async function main() {
         type: row.type,
         basePrice: row.sellingPrice,
         snackIngredientId: snackIngredientId ?? null,
+        imageUrl: resolveMenuImageUrl(row.code, row.category),
         isActive: true,
         deletedAt: null,
         sortOrder: i + 1,
@@ -483,6 +485,7 @@ async function main() {
         type: row.type,
         basePrice: row.sellingPrice,
         snackIngredientId,
+        imageUrl: resolveMenuImageUrl(row.code, row.category),
         sortOrder: i + 1,
       },
     });

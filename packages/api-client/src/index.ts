@@ -17,6 +17,9 @@ import type {
   ProductSalesReportRow,
   IngredientUsageReportRow,
   UnpaidOrdersReport,
+  PnlAnalyticsReport,
+  CorporateBillingReport,
+  DepartmentStatementReport,
   StockMovementRow,
 } from '@qauto/shared-types';
 
@@ -118,6 +121,32 @@ export class ApiClient {
     });
   }
 
+  async addOrderLine(orderId: string, line: CartLineInput): Promise<Order> {
+    return this.request<Order>(`/orders/${orderId}/lines`, {
+      method: 'POST',
+      body: JSON.stringify(line),
+    });
+  }
+
+  async updateOrderLineQuantity(orderId: string, lineId: string, quantity: number): Promise<Order> {
+    return this.request<Order>(`/orders/${orderId}/lines/${lineId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ quantity }),
+    });
+  }
+
+  async removeOrderLine(orderId: string, lineId: string): Promise<Order> {
+    return this.request<Order>(`/orders/${orderId}/lines/${lineId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async clearOrderLines(orderId: string): Promise<Order> {
+    return this.request<Order>(`/orders/${orderId}/lines`, {
+      method: 'DELETE',
+    });
+  }
+
   async applyOrderDiscount(
     orderId: string,
     body: {
@@ -195,7 +224,15 @@ export class ApiClient {
       billingParty?: 'INDIVIDUAL' | 'DEPARTMENT';
       paymentDueDate?: string;
     },
-  ) {
+  ): Promise<{
+    id: string;
+    customerName: string | null;
+    customerDepartment: string | null;
+    customerId: string | null;
+    guestName: string | null;
+    billingParty: 'INDIVIDUAL' | 'DEPARTMENT';
+    paymentDueDate: string | null;
+  }> {
     return this.request(`/orders/${orderId}/customer`, {
       method: 'PATCH',
       body: JSON.stringify(body),
@@ -521,6 +558,67 @@ export class ApiClient {
     return this.request<ArAgingReport>(
       `/reports/ar-aging?branchId=${encodeURIComponent(branchId)}`,
     );
+  }
+
+  async getPnlAnalytics(branchId: string, from: string, to: string) {
+    const params = new URLSearchParams({ branchId, from, to });
+    return this.request<PnlAnalyticsReport>(`/reports/pnl?${params}`);
+  }
+
+  async getCorporateBillingReport(branchId: string, from: string, to: string) {
+    const params = new URLSearchParams({ branchId, from, to });
+    return this.request<CorporateBillingReport>(`/reports/corporate-billing?${params}`);
+  }
+
+  async getBillingDepartments(branchId: string) {
+    return this.request<string[]>(
+      `/reports/billing-departments?branchId=${encodeURIComponent(branchId)}`,
+    );
+  }
+
+  async getDepartmentStatement(branchId: string, department: string, month: string) {
+    const params = new URLSearchParams({ branchId, department, month });
+    return this.request<DepartmentStatementReport>(`/reports/department-statement?${params}`);
+  }
+
+  async getSalesRangeReport(branchId: string, from: string, to: string) {
+    const params = new URLSearchParams({ branchId, from, to });
+    return this.request<
+      Array<{
+        businessDate: string;
+        orderCount: number;
+        grossSales: string;
+        netSales: string;
+        cogsTotal: string;
+        discountTotal: string;
+        taxTotal: string;
+        refundTotal: string;
+      }>
+    >(`/reports/sales-range?${params}`);
+  }
+
+  async downloadDepartmentStatementCsv(branchId: string, department: string, month: string) {
+    const params = new URLSearchParams({ branchId, department, month });
+    const headers = new Headers();
+    const token = this.options.getAccessToken?.();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const branchHeader = this.options.getBranchId?.();
+    if (branchHeader) headers.set('X-Branch-Id', branchHeader);
+
+    const response = await fetch(
+      `${this.options.baseUrl}/reports/department-statement/export?${params}`,
+      { headers, credentials: 'include' },
+    );
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new ApiError({
+        type: data.type ?? 'unknown',
+        title: data.title ?? 'Error',
+        status: response.status,
+        detail: data.detail ?? 'Export failed',
+      });
+    }
+    return response.text();
   }
 
   async getLoyaltySummary(branchId: string) {
@@ -1145,13 +1243,31 @@ export class ApiClient {
       headers.set('X-Branch-Id', branchId);
     }
 
-    const response = await fetch(`${this.options.baseUrl}${path}`, {
-      ...init,
-      headers,
-      credentials: 'include',
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.options.baseUrl}${path}`, {
+        ...init,
+        headers,
+        credentials: 'include',
+      });
+    } catch {
+      throw new ApiError({
+        type: 'network-error',
+        title: 'Network Error',
+        status: 0,
+        detail: 'Cannot reach the API. Ensure the API server is running.',
+      });
+    }
 
-    const data = await response.json().catch(() => ({}));
+    const text = await response.text().catch(() => '');
+    let data: Record<string, unknown> = {};
+    if (text) {
+      try {
+        data = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        data = {};
+      }
+    }
 
     if (
       !response.ok &&
@@ -1167,12 +1283,24 @@ export class ApiClient {
     }
 
     if (!response.ok) {
+      const status = response.status;
+      const detail =
+        (typeof data.detail === 'string' && data.detail) ||
+        (status === 502 || status === 503
+          ? 'API server unavailable. Start the API (port 3001) and try again.'
+          : status >= 500
+            ? 'Server error. Try again in a moment.'
+            : `Request failed (${status})`);
+      const errors = Array.isArray(data.errors)
+        ? (data.errors as Array<{ field: string; message: string }>)
+        : undefined;
+
       throw new ApiError({
-        type: data.type ?? 'unknown',
-        title: data.title ?? 'Error',
-        status: response.status,
-        detail: data.detail ?? 'Request failed',
-        errors: data.errors,
+        type: (data.type as string) ?? 'unknown',
+        title: (data.title as string) ?? 'Error',
+        status,
+        detail,
+        errors,
       });
     }
 

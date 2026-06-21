@@ -3,5 +3,5 @@ import { loginWithPin } from './helpers/auth';
 
 test('PIN login → sell screen', async ({ page }) => {
   await loginWithPin(page);
-  await expect(page.getByRole('heading', { name: /^Sell$/i })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole('heading', { name: /^Register$/i })).toBeVisible({ timeout: 15000 });
 });

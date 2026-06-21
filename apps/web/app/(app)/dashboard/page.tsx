@@ -1,8 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { DashboardAnalytics, ProductSalesReportRow, QueueOrder } from '@qauto/shared-types';
-import type { InventoryStockItem } from '@qauto/api-client';
+import { useMemo, useState } from 'react';
 import {
   Alert,
   Badge,
@@ -15,62 +13,23 @@ import {
   StatusBadge,
   TableSkeleton,
 } from '@qauto/ui';
-import { getApiClient, getBusinessDate, formatQar } from '@/lib/api';
+import { getBusinessDate, formatQar } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth-store';
 import { DashboardChartsLazy } from '@/components/DashboardChartsLazy';
+import { useDashboardData } from '@/lib/queries';
 
 export default function DashboardPage() {
   const branchId = useAuthStore((s) => s.branchId);
   const [businessDate, setBusinessDate] = useState(getBusinessDate());
-  const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
-  const [products, setProducts] = useState<ProductSalesReportRow[]>([]);
-  const [queue, setQueue] = useState<QueueOrder[]>([]);
-  const [stock, setStock] = useState<InventoryStockItem[]>([]);
-  const [unpaidCount, setUnpaidCount] = useState(0);
-  const [outstandingTotal, setOutstandingTotal] = useState('0.0000');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, isLoading, error, isFetching } = useDashboardData(branchId, businessDate);
 
-  const load = useCallback(async () => {
-    if (!branchId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const client = getApiClient();
-      const [dashboardData, productData, queueData, lowStockData, unpaidData] = await Promise.all([
-        client.getDashboardAnalytics(branchId, businessDate, 7),
-        client.getProductPerformance(branchId, businessDate),
-        client.getOrderQueue(branchId),
-        client.getLowStock(branchId),
-        client.getUnpaidOrdersReport(branchId),
-      ]);
-      setAnalytics(dashboardData);
-      setProducts(productData);
-      setQueue(queueData);
-      setStock(
-        lowStockData.items.map((i) => ({
-          ingredientId: i.ingredientId,
-          name: i.name,
-          code: i.code,
-          isPackaging: false,
-          available: i.available,
-          uom: i.uom,
-        })),
-      );
-      setUnpaidCount(unpaidData.orderCount);
-      setOutstandingTotal(unpaidData.outstandingTotal);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load dashboard');
-    } finally {
-      setLoading(false);
-    }
-  }, [branchId, businessDate]);
-
-  useEffect(() => {
-    load();
-    const interval = setInterval(load, 60000);
-    return () => clearInterval(interval);
-  }, [load]);
+  const loading = isLoading && !data;
+  const analytics = data?.analytics;
+  const products = data?.products ?? [];
+  const queue = data?.queue ?? [];
+  const stock = data?.stock ?? [];
+  const unpaidCount = data?.unpaidCount ?? 0;
+  const outstandingTotal = data?.outstandingTotal ?? '0.0000';
 
   const kpis = analytics?.kpis;
   const queueBreakdown = useMemo(
@@ -92,6 +51,7 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-semibold tracking-tight text-ink">Dashboard</h1>
           <p className="mt-1 text-sm text-ink-muted">
             Sales analytics, margins, and live operations
+            {isFetching && !loading ? ' · refreshing…' : ''}
           </p>
         </div>
         <div className="w-full sm:w-48">
@@ -104,7 +64,9 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {error ? <Alert variant="error">{error}</Alert> : null}
+      {error ? (
+        <Alert variant="error">{error instanceof Error ? error.message : 'Failed to load dashboard'}</Alert>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {loading ? (
@@ -143,7 +105,7 @@ export default function DashboardPage() {
       <DashboardChartsLazy
         loading={loading}
         businessDate={businessDate}
-        analytics={analytics}
+        analytics={analytics ?? null}
         products={products}
         formatQar={formatQar}
       />

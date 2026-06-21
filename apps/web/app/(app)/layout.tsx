@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { AppShell, ToastProvider } from '@qauto/ui';
 import { refreshAccessToken, getApiClient } from '@/lib/api';
@@ -8,31 +8,17 @@ import { useAuthStore } from '@/lib/auth-store';
 import { useCartStore } from '@/lib/cart-store';
 import { applyNavBadges, getNavGroups, getRoleLabel, getShellSubtitle } from '@/lib/navigation';
 import { useUiStore } from '@/lib/ui-store';
+import { useNavBadges } from '@/lib/queries';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, branchId, sessionType, hasHydrated, clearSession, setBranchId } = useAuthStore();
+  const { user, branchId, sessionType, hasHydrated, accessToken, clearSession, setBranchId } =
+    useAuthStore();
   const kitchenDisplayMode = useUiStore((s) => s.kitchenDisplayMode);
   const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
-  const [unpaidCount, setUnpaidCount] = useState(0);
-  const [kitchenCount, setKitchenCount] = useState(0);
-
-  const loadBadges = useCallback(async () => {
-    if (!branchId) return;
-    try {
-      const client = getApiClient();
-      const [unpaid, queue] = await Promise.all([
-        client.getUnpaidOrdersReport(branchId),
-        client.getOrderQueue(branchId),
-      ]);
-      setUnpaidCount(unpaid.orderCount);
-      setKitchenCount(queue.filter((o) => ['PENDING_PAYMENT', 'PAID', 'IN_PREP', 'READY'].includes(o.status)).length);
-    } catch {
-      // Badges are optional — ignore auth errors here
-    }
-  }, [branchId]);
+  const { data: badges } = useNavBadges(branchId);
 
   useEffect(() => {
     if (!hasHydrated) return;
@@ -52,27 +38,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [hasHydrated, user, branchId, setBranchId]);
 
   useEffect(() => {
-    if (!hasHydrated) return;
-    if (!user) return;
+    if (!hasHydrated || !user || accessToken) return;
     void refreshAccessToken();
-  }, [hasHydrated, user]);
-
-  useEffect(() => {
-    if (!branchId || !user) return;
-    if (pathname === '/dashboard' || pathname === '/orders' || pathname === '/kitchen') return;
-
-    loadBadges();
-    const interval = setInterval(loadBadges, 60000);
-    return () => clearInterval(interval);
-  }, [branchId, user, loadBadges, pathname]);
+  }, [hasHydrated, user, accessToken]);
 
   const navGroups = useMemo(
     () =>
       applyNavBadges(getNavGroups(sessionType), {
-        orders: unpaidCount,
-        kitchen: kitchenCount,
+        orders: badges?.unpaidCount ?? 0,
+        kitchen: badges?.kitchenCount ?? 0,
       }),
-    [sessionType, unpaidCount, kitchenCount],
+    [sessionType, badges?.unpaidCount, badges?.kitchenCount],
   );
 
   const minimalChrome = pathname === '/kitchen' && kitchenDisplayMode;

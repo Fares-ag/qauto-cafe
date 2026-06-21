@@ -4,6 +4,7 @@ import type { NextRequest } from 'next/server';
 const STAFF_PATHS = ['/sell', '/kitchen', '/orders', '/shifts', '/inventory', '/menu'];
 const MANAGER_ONLY_PREFIXES = [
   '/dashboard',
+  '/finance',
   '/reports',
   '/customers',
   '/ingredients',
@@ -44,6 +45,7 @@ export function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     '/dashboard/:path*',
+    '/finance/:path*',
     '/sell/:path*',
     '/kitchen/:path*',
     '/orders/:path*',

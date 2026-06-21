@@ -2,13 +2,15 @@
 
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '@qauto/api-client';
 import type { CartLineInput, MenuCatalogItem, OrderType, StockShortageError } from '@qauto/shared-types';
 import { Alert, Button, Card, Input, useToast } from '@qauto/ui';
 import { useAuthStore } from '@/lib/auth-store';
 import { useCartStore } from '@/lib/cart-store';
 import { withAuth } from '@/lib/api';
-import { ensureTerminal } from '@/lib/terminal';
+import type { ApiClient } from '@qauto/api-client';
+import type { Order } from '@qauto/shared-types';
 import { printReceipt } from '@/lib/print-receipt';
 import { MenuGrid } from '@/components/MenuGrid';
 import { CartPanel } from '@/components/CartPanel';
@@ -19,6 +21,8 @@ import {
 import { RegisterTips } from '@/components/RegisterTips';
 import type { SplitPaymentRow } from '@/components/SplitPaySheet';
 import { getCategoryIcon, ORDER_TYPE_LABELS } from '@/lib/navigation';
+import { usePosBootstrap } from '@/lib/queries';
+import { queryKeys } from '@/lib/query-keys';
 
 const ModifierSheet = dynamic(
   () => import('@/components/ModifierSheet').then((m) => m.ModifierSheet),
@@ -51,6 +55,7 @@ function isStockShortageErrors(errors: unknown): errors is StockShortageError[] 
 }
 
 export default function SellPage() {
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const { branchId, posTerminalId, shiftId, currentShift, setShift, setPosTerminalId } =
     useAuthStore();
@@ -65,13 +70,13 @@ export default function SellPage() {
     setSyncing,
   } = useCartStore();
 
+  const { data: bootstrap, isLoading: bootstrapLoading, error: bootstrapError } = usePosBootstrap(branchId);
+
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [payError, setPayError] = useState<string | null>(null);
   const [stockErrors, setStockErrors] = useState<StockShortageError[]>([]);
   const [paySuccess, setPaySuccess] = useState<string | null>(null);
-  const [shiftLoading, setShiftLoading] = useState(true);
-  const [terminalReady, setTerminalReady] = useState(false);
   const [openingFloat, setOpeningFloat] = useState('100.0000');
   const [closeCash, setCloseCash] = useState('');
   const [showCloseShift, setShowCloseShift] = useState(false);
@@ -85,49 +90,23 @@ export default function SellPage() {
   const [showSplitPay, setShowSplitPay] = useState(false);
 
   useEffect(() => {
-    if (!branchId) return;
+    if (!bootstrap) return;
+    setPosTerminalId(bootstrap.terminalId);
+    setCatalog(bootstrap.catalog);
+    setShift(bootstrap.shift);
+    setActiveCategoryId((current) => current ?? bootstrap.catalog.categories[0]?.id ?? null);
+  }, [bootstrap, setPosTerminalId, setCatalog, setShift]);
 
-    let cancelled = false;
-    setShiftLoading(true);
-    setTerminalReady(false);
+  useEffect(() => {
+    if (bootstrapError) {
+      setError(bootstrapError instanceof Error ? bootstrapError.message : 'Failed to initialize POS');
+    }
+  }, [bootstrapError]);
 
-    withAuth(async (client) => {
-      const terminalId = await ensureTerminal(client, branchId, 'POS');
-      if (cancelled) return;
-
-      setPosTerminalId(terminalId);
-      setTerminalReady(true);
-
-      const [catalogData, shift] = await Promise.all([
-        client.getMenuCatalog(branchId),
-        client.getCurrentShift(branchId, terminalId),
-      ]);
-      if (cancelled) return;
-
-      setCatalog(catalogData);
-      setActiveCategoryId(catalogData.categories[0]?.id ?? null);
-      setShift(shift);
-    })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to initialize POS');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setShiftLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [branchId, setPosTerminalId, setCatalog, setShift]);
-
-  const loadCatalog = useCallback(async () => {
-    if (!branchId) return;
-    const data = await withAuth((client) => client.getMenuCatalog(branchId));
-    setCatalog(data);
-    setActiveCategoryId(data.categories[0]?.id ?? null);
-  }, [branchId, setCatalog]);
+  const isOrderLocked =
+    order?.status === 'PAID' ||
+    order?.status === 'PENDING_PAYMENT' ||
+    Boolean(order?.deferredAt);
 
   const ensureOrder = useCallback(async () => {
     if (order || !branchId) return order;
@@ -148,25 +127,13 @@ export default function SellPage() {
     [catalog, activeCategoryId],
   );
 
-  function linesToInput(): CartLineInput[] {
-    return (
-      order?.lines.map((l) => ({
-        menuItemId: l.menuItemId,
-        sizeId: l.sizeId ?? undefined,
-        quantity: l.quantity,
-        modifierIds: l.modifiers.map((m) => m.modifierId),
-        notes: l.notes ?? undefined,
-      })) ?? []
-    );
-  }
-
-  async function syncLines(lines: CartLineInput[]) {
+  async function mutateOrder(fn: (client: ApiClient, orderId: string) => Promise<Order>) {
     setSyncing(true);
     setError(null);
     try {
       const current = order ?? (await ensureOrder());
       if (!current) return;
-      const updated = await withAuth((client) => client.updateOrderLines(current.id, lines));
+      const updated = await withAuth((client) => fn(client, current.id));
       setOrder(updated);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update order');
@@ -175,26 +142,22 @@ export default function SellPage() {
     }
   }
 
-  async function handleSelectItem(item: MenuCatalogItem) {
-    if (item.type === 'SNACK' && item.modifierGroups.length === 0) {
-      await addLine({ menuItemId: item.id, quantity: 1, modifierIds: [] });
-      return;
-    }
-    setPending({ item, modifierIds: [] });
-  }
-
   async function addLine(line: CartLineInput) {
-    await syncLines([...linesToInput(), line]);
+    await mutateOrder((client, orderId) => client.addOrderLine(orderId, line));
   }
 
   async function handleUpdateQuantity(lineIndex: number, quantity: number) {
-    const lines = linesToInput();
-    lines[lineIndex] = { ...lines[lineIndex], quantity };
-    await syncLines(lines);
+    const line = order?.lines[lineIndex];
+    if (!line) return;
+    await mutateOrder((client, orderId) =>
+      client.updateOrderLineQuantity(orderId, line.id, quantity),
+    );
   }
 
   async function handleRemoveLine(lineIndex: number) {
-    await syncLines(linesToInput().filter((_, i) => i !== lineIndex));
+    const line = order?.lines[lineIndex];
+    if (!line) return;
+    await mutateOrder((client, orderId) => client.removeOrderLine(orderId, line.id));
   }
 
   async function handleClear() {
@@ -202,7 +165,29 @@ export default function SellPage() {
     setPayError(null);
     setStockErrors([]);
     setPaySuccess(null);
-    await syncLines([]);
+    await mutateOrder((client, orderId) => client.clearOrderLines(orderId));
+  }
+
+  function invalidateMenuCatalog() {
+    if (!branchId) return;
+    void queryClient.invalidateQueries({ queryKey: queryKeys.menuCatalog(branchId) });
+    void queryClient.invalidateQueries({ queryKey: ['pos-bootstrap', branchId] });
+  }
+
+  function invalidateOrderQueries() {
+    if (!branchId) return;
+    void queryClient.invalidateQueries({ queryKey: queryKeys.navBadges(branchId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.orderQueue(branchId) });
+    void queryClient.invalidateQueries({ queryKey: ['orders-list', branchId] });
+  }
+
+  async function handleSelectItem(item: MenuCatalogItem) {
+    if (isOrderLocked) return;
+    if (item.type === 'SNACK' && item.modifierGroups.length === 0) {
+      await addLine({ menuItemId: item.id, quantity: 1, modifierIds: [] });
+      return;
+    }
+    setPending({ item, modifierIds: [] });
   }
 
   async function handleOpenShift() {
@@ -236,6 +221,15 @@ export default function SellPage() {
     }
   }
 
+  function validateRegisterCustomer(): string | null {
+    if (registerCustomer.mode === 'guest' && registerCustomer.billingParty === 'DEPARTMENT') {
+      if (!registerCustomer.customerDepartment.trim()) {
+        return 'Select a department for the office guest before checkout';
+      }
+    }
+    return null;
+  }
+
   async function syncCustomer(orderId: string) {
     const { customerName, customerDepartment, customerId, billingParty, guestName } = registerCustomer;
     const hasDetails =
@@ -246,7 +240,7 @@ export default function SellPage() {
       billingParty === 'DEPARTMENT';
     if (!hasDetails) return;
 
-    await withAuth((client) =>
+    const updated = await withAuth((client) =>
       client.updateOrderCustomer(orderId, {
         customerId: billingParty === 'DEPARTMENT' ? null : customerId ?? undefined,
         customerName: customerName.trim() || undefined,
@@ -255,12 +249,23 @@ export default function SellPage() {
         billingParty,
       }),
     );
+    const current = useCartStore.getState().order;
+    if (current?.id === orderId) {
+      setOrder({
+        ...current,
+        customerName: updated.customerName ?? current.customerName,
+        customerDepartment: updated.customerDepartment ?? current.customerDepartment,
+        guestName: updated.guestName ?? current.guestName,
+        billingParty: updated.billingParty ?? current.billingParty,
+      });
+    }
   }
 
   function handleRegisterCustomerChange(value: RegisterCustomerValue) {
     setRegisterCustomer(value);
     if (value.mode === 'extension' && value.customerId) {
-      withAuth((client) => client.getCustomerDirectory())
+      const q = value.customerName.trim() || value.phoneExtension.trim();
+      withAuth((client) => client.getCustomerDirectory(q || undefined))
         .then((entries) => {
           const match = entries.find((e) => e.id === value.customerId);
           setLoyaltyPointsBalance(match?.pointsBalance ?? 0);
@@ -270,6 +275,17 @@ export default function SellPage() {
       setLoyaltyPointsBalance(0);
     }
   }
+
+  useEffect(() => {
+    if (!order?.id || order.status !== 'DRAFT') return;
+    const validationError = validateRegisterCustomer();
+    if (validationError) return;
+
+    const timer = setTimeout(() => {
+      syncCustomer(order.id).catch(() => undefined);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [order?.id, order?.status, registerCustomer]);
 
   function resetRegisterCustomer() {
     setRegisterCustomer(emptyRegisterCustomer());
@@ -323,6 +339,11 @@ export default function SellPage() {
     setPaySuccess(null);
 
     try {
+      const validationError = validateRegisterCustomer();
+      if (validationError) {
+        setPayError(validationError);
+        return;
+      }
       await syncCustomer(order.id);
       const points = loyaltyPointsRedeem ? parseInt(loyaltyPointsRedeem, 10) : undefined;
       const result = await withAuth((client) =>
@@ -344,7 +365,7 @@ export default function SellPage() {
       setPaySuccess(`Paid — Order #${result.order.orderNumber}`);
       toast('Payment complete', 'success');
       printReceipt(result);
-      await loadCatalog();
+      invalidateOrderQueries();
       setShowSplitPay(false);
 
       setTimeout(() => {
@@ -363,6 +384,7 @@ export default function SellPage() {
         isStockShortageErrors(err.body.errors)
       ) {
         setStockErrors(err.body.errors);
+        invalidateMenuCatalog();
       } else {
         setPayError(err instanceof Error ? err.message : 'Payment failed');
       }
@@ -395,6 +417,11 @@ export default function SellPage() {
     setPaySuccess(null);
 
     try {
+      const validationError = validateRegisterCustomer();
+      if (validationError) {
+        setPayError(validationError);
+        return;
+      }
       await syncCustomer(order.id);
       const result = await withAuth((client) => client.deferOrder(order.id));
 
@@ -413,7 +440,7 @@ export default function SellPage() {
         `Order #${result.order.orderNumber} sent to kitchen · payment pending`,
       );
       toast('Sent to kitchen — collect payment later', 'success');
-      await loadCatalog();
+      invalidateOrderQueries();
 
       setTimeout(() => {
         setOrder(null);
@@ -427,6 +454,7 @@ export default function SellPage() {
         isStockShortageErrors(err.body.errors)
       ) {
         setStockErrors(err.body.errors);
+        invalidateMenuCatalog();
       } else {
         setPayError(err instanceof Error ? err.message : 'Could not send to kitchen');
       }
@@ -435,7 +463,7 @@ export default function SellPage() {
     }
   }
 
-  if (shiftLoading || !terminalReady) {
+  if ((bootstrapLoading && !catalog) || !bootstrap) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand border-t-transparent" />
@@ -541,6 +569,7 @@ export default function SellPage() {
                 items={activeCategory.items}
                 activeCategory={activeCategory.name}
                 onSelectItem={handleSelectItem}
+                disabled={isOrderLocked || isSyncing}
               />
             ) : (
               <p className="text-sm text-ink-muted">Loading menu…</p>

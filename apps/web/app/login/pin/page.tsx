@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ApiClient } from '@qauto/api-client';
+import { ApiClient, ApiError } from '@qauto/api-client';
 import { Alert, Card, PinPad } from '@qauto/ui';
 import { useAuthStore } from '@/lib/auth-store';
 import { baseUrl } from '@/lib/api';
@@ -37,7 +37,15 @@ export default function PinLoginPage() {
         }
         setTerminalId(posTerminal.id);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to initialize terminal');
+        setError(
+          err instanceof ApiError
+            ? err.body.detail
+            : err instanceof TypeError
+              ? 'Cannot reach the API. Ensure the dev server is running (npm run dev).'
+              : err instanceof Error
+                ? err.message
+                : 'Failed to initialize terminal',
+        );
       }
     }
     if (hasHydrated) initTerminal();
@@ -49,17 +57,24 @@ export default function PinLoginPage() {
     setError(null);
     try {
       const client = new ApiClient({ baseUrl });
-      const bootstrap = await client.getBootstrap();
       const res = await client.pinLogin(terminalId, pin);
       setSession({
         accessToken: res.accessToken,
         user: res.user,
-        branchId: res.branchId ?? bootstrap.branch?.id,
+        branchId: res.branchId ?? branchId ?? undefined,
         sessionType: 'staff',
       });
       router.push('/sell');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Invalid PIN');
+      setError(
+        err instanceof ApiError
+          ? err.body.detail
+          : err instanceof TypeError
+            ? 'Cannot reach the API. Ensure the dev server is running (npm run dev).'
+            : err instanceof Error
+              ? err.message
+              : 'Invalid PIN',
+      );
       setPin('');
     } finally {
       setLoading(false);

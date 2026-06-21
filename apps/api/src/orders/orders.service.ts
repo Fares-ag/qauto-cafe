@@ -131,7 +131,8 @@ export class OrdersService {
 
     const totals = this.calculateOrderTotals(resolved);
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(
+      async (tx) => {
       await tx.orderLineModifier.deleteMany({ where: { orderLine: { orderId } } });
       await tx.orderLine.deleteMany({ where: { orderId } });
 
@@ -180,9 +181,236 @@ export class OrdersService {
           },
         });
       }
-    });
+    },
+      { maxWait: 10_000, timeout: 30_000 },
+    );
 
     return this.findOne(orderId, organizationId);
+  }
+
+  async addLineToOrder(orderId: string, organizationId: string, input: OrderLineInputDto) {
+    const order = await this.getDraftOrder(orderId, organizationId);
+    const existing = await this.prisma.orderLine.findMany({
+      where: { orderId },
+      orderBy: { sortOrder: 'asc' },
+      include: { modifiers: true },
+    });
+
+    const resolved = await this.resolveLine(order.branchId, input, existing.length);
+    const match = existing.find((line) => this.linesMatch(line, input));
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        if (match) {
+          const quantity = match.quantity + input.quantity;
+          await this.applyLineQuantityUpdate(tx, match, quantity);
+        } else {
+          await this.createResolvedLine(tx, orderId, resolved, existing.length);
+        }
+        await this.syncOrderTotals(orderId, tx);
+      },
+      { maxWait: 10_000, timeout: 30_000 },
+    );
+
+    return this.findOne(orderId, organizationId);
+  }
+
+  async updateOrderLineQuantity(
+    orderId: string,
+    organizationId: string,
+    lineId: string,
+    quantity: number,
+  ) {
+    await this.getDraftOrder(orderId, organizationId);
+    const line = await this.prisma.orderLine.findFirst({
+      where: { id: lineId, orderId },
+      include: { modifiers: true },
+    });
+    if (!line) throw new NotFoundException('Order line not found');
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        if (quantity <= 0) {
+          await tx.orderLineModifier.deleteMany({ where: { orderLineId: lineId } });
+          await tx.orderLine.delete({ where: { id: lineId } });
+        } else {
+          await this.applyLineQuantityUpdate(tx, line, quantity);
+        }
+        await this.syncOrderTotals(orderId, tx);
+      },
+      { maxWait: 10_000, timeout: 30_000 },
+    );
+
+    return this.findOne(orderId, organizationId);
+  }
+
+  async removeOrderLine(orderId: string, organizationId: string, lineId: string) {
+    await this.getDraftOrder(orderId, organizationId);
+    const line = await this.prisma.orderLine.findFirst({ where: { id: lineId, orderId } });
+    if (!line) throw new NotFoundException('Order line not found');
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.orderLineModifier.deleteMany({ where: { orderLineId: lineId } });
+        await tx.orderLine.delete({ where: { id: lineId } });
+        await this.syncOrderTotals(orderId, tx);
+      },
+      { maxWait: 10_000, timeout: 30_000 },
+    );
+
+    return this.findOne(orderId, organizationId);
+  }
+
+  async clearOrderLines(orderId: string, organizationId: string) {
+    await this.getDraftOrder(orderId, organizationId);
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.orderLineModifier.deleteMany({ where: { orderLine: { orderId } } });
+        await tx.orderLine.deleteMany({ where: { orderId } });
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            subtotal: 0,
+            discountTotal: 0,
+            taxTotal: 0,
+            total: 0,
+          },
+        });
+      },
+      { maxWait: 10_000, timeout: 30_000 },
+    );
+
+    return this.findOne(orderId, organizationId);
+  }
+
+  private linesMatch(
+    line: {
+      menuItemId: string;
+      sizeId: string | null;
+      notes: string | null;
+      modifiers: Array<{ modifierId: string }>;
+    },
+    input: OrderLineInputDto,
+  ) {
+    const inputModifierIds = [...(input.modifierIds ?? [])].sort().join(',');
+    const lineModifierIds = line.modifiers.map((m) => m.modifierId).sort().join(',');
+    return (
+      line.menuItemId === input.menuItemId &&
+      (line.sizeId ?? null) === (input.sizeId ?? null) &&
+      (line.notes ?? null) === (input.notes ?? null) &&
+      lineModifierIds === inputModifierIds
+    );
+  }
+
+  private async createResolvedLine(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    line: ResolvedLine,
+    sortOrder: number,
+  ) {
+    const createdLine = await tx.orderLine.create({
+      data: {
+        orderId,
+        menuItemId: line.menuItemId,
+        sizeId: line.sizeId,
+        itemName: line.itemName,
+        sizeName: line.sizeName,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        lineSubtotal: line.lineSubtotal,
+        lineDiscount: line.lineDiscount,
+        lineTax: line.lineTax,
+        lineTotal: line.lineTotal,
+        notes: line.notes,
+        sortOrder,
+      },
+    });
+
+    if (line.modifiers.length) {
+      await tx.orderLineModifier.createMany({
+        data: line.modifiers.map((mod) => ({
+          orderLineId: createdLine.id,
+          modifierId: mod.modifierId,
+          name: mod.name,
+          priceAdjustment: mod.priceAdjustment,
+        })),
+      });
+    }
+  }
+
+  private async applyLineQuantityUpdate(
+    tx: Prisma.TransactionClient,
+    line: {
+      id: string;
+      unitPrice: Prisma.Decimal;
+      lineSubtotal: Prisma.Decimal;
+      lineDiscount: Prisma.Decimal;
+      lineTax: Prisma.Decimal;
+      quantity: number;
+    },
+    quantity: number,
+  ) {
+    const unitPrice = line.unitPrice;
+    const lineSubtotal = unitPrice.mul(quantity);
+    const discountRatio = line.lineSubtotal.gt(0)
+      ? line.lineDiscount.div(line.lineSubtotal)
+      : new Prisma.Decimal(0);
+    const taxRatio = line.lineSubtotal.gt(0)
+      ? line.lineTax.div(line.lineSubtotal)
+      : new Prisma.Decimal(0);
+    const lineDiscount = lineSubtotal.mul(discountRatio);
+    const taxable = lineSubtotal.sub(lineDiscount);
+    const lineTax = taxable.mul(taxRatio);
+    const lineTotal = taxable.add(lineTax);
+
+    await tx.orderLine.update({
+      where: { id: line.id },
+      data: {
+        quantity,
+        lineSubtotal,
+        lineDiscount,
+        lineTax,
+        lineTotal,
+      },
+    });
+  }
+
+  private async syncOrderTotals(orderId: string, tx: Prisma.TransactionClient) {
+    const discountCount = await tx.orderDiscount.count({ where: { orderId } });
+    if (discountCount > 0) {
+      await this.orderDiscountService.recalculateForOrder(orderId, tx);
+      return;
+    }
+
+    const lines = await tx.orderLine.findMany({ where: { orderId } });
+    const totals = this.calculateOrderTotals(
+      lines.map((line) => ({
+        menuItemId: line.menuItemId,
+        sizeId: line.sizeId,
+        itemName: line.itemName,
+        sizeName: line.sizeName,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        lineSubtotal: line.lineSubtotal,
+        lineDiscount: line.lineDiscount,
+        lineTax: line.lineTax,
+        lineTotal: line.lineTotal,
+        notes: line.notes,
+        modifierIds: [],
+        modifiers: [],
+      })),
+    );
+
+    await tx.order.update({
+      where: { id: orderId },
+      data: {
+        subtotal: totals.subtotal,
+        discountTotal: totals.discountTotal,
+        taxTotal: totals.taxTotal,
+        total: totals.total,
+      },
+    });
   }
 
   async findOne(orderId: string, organizationId: string) {

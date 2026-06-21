@@ -8,6 +8,7 @@ interface MenuGridProps {
   items: MenuCatalogItem[];
   activeCategory: string;
   onSelectItem: (item: MenuCatalogItem) => void;
+  disabled?: boolean;
 }
 
 function ItemImage({ item }: { item: MenuCatalogItem }) {
@@ -29,7 +30,7 @@ function ItemImage({ item }: { item: MenuCatalogItem }) {
   );
 }
 
-export function MenuGrid({ items, activeCategory, onSelectItem }: MenuGridProps) {
+export function MenuGrid({ items, activeCategory, onSelectItem, disabled }: MenuGridProps) {
   const categoryIcon = getCategoryIcon(activeCategory);
 
   return (
@@ -47,7 +48,7 @@ export function MenuGrid({ items, activeCategory, onSelectItem }: MenuGridProps)
           <button
             key={item.id}
             type="button"
-            disabled={item.is86 || !item.isAvailable}
+            disabled={disabled || item.is86 || !item.isAvailable}
             onClick={() => onSelectItem(item)}
             className="group overflow-hidden rounded-xl border border-border bg-surface-raised text-left shadow-soft transition-all duration-150 hover:border-accent/40 hover:shadow-card active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
           >

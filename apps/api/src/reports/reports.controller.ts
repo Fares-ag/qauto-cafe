@@ -1,4 +1,5 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { ReportsService } from './reports.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -112,5 +113,70 @@ export class ReportsController {
     @Query('to') to: string,
   ) {
     return this.reportsService.getSalesRange(branchId, user.organizationId, from, to);
+  }
+
+  @Get('pnl')
+  pnl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('branchId') branchId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ) {
+    return this.reportsService.getPnlAnalytics(branchId, user.organizationId, from, to);
+  }
+
+  @Get('corporate-billing')
+  corporateBilling(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('branchId') branchId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ) {
+    return this.reportsService.getCorporateBilling(branchId, user.organizationId, from, to);
+  }
+
+  @Get('billing-departments')
+  billingDepartments(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('branchId') branchId: string,
+  ) {
+    return this.reportsService.listBillingDepartments(branchId, user.organizationId);
+  }
+
+  @Get('department-statement')
+  departmentStatement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('branchId') branchId: string,
+    @Query('department') department: string,
+    @Query('month') month: string,
+  ) {
+    return this.reportsService.getDepartmentStatement(
+      branchId,
+      user.organizationId,
+      department,
+      month,
+    );
+  }
+
+  @Get('department-statement/export')
+  @Permissions('report.export', 'finance.view')
+  async departmentStatementExport(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('branchId') branchId: string,
+    @Query('department') department: string,
+    @Query('month') month: string,
+    @Res() res: Response,
+  ) {
+    const statement = await this.reportsService.getDepartmentStatement(
+      branchId,
+      user.organizationId,
+      department,
+      month,
+    );
+    const csv = this.reportsService.buildDepartmentStatementCsv(statement);
+    const filename = `statement-${department.replace(/\s+/g, '-')}-${month}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csv);
   }
 }

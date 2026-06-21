@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { Order } from '@qauto/shared-types';
 import {
   Button,
@@ -14,6 +15,8 @@ import {
 } from '@qauto/ui';
 import { getApiClient } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth-store';
+import { useOrdersList } from '@/lib/queries';
+import { queryKeys } from '@/lib/query-keys';
 
 type OrderRow = Awaited<ReturnType<ReturnType<typeof getApiClient>['listOrders']>>['items'][number];
 
@@ -29,11 +32,13 @@ const STATUS_FILTERS = [
 ];
 
 export default function OrdersPage() {
+  const queryClient = useQueryClient();
   const branchId = useAuthStore((s) => s.branchId);
   const { toast } = useToast();
-  const [orders, setOrders] = useState<OrderRow[]>([]);
-  const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('PENDING_PAYMENT');
+  const { data, isLoading, error } = useOrdersList(branchId, statusFilter);
+  const orders = data?.items ?? [];
+  const loading = isLoading && !data;
   const [actionId, setActionId] = useState<string | null>(null);
   const [actionOrder, setActionOrder] = useState<Order | null>(null);
   const [collectId, setCollectId] = useState<string | null>(null);
@@ -43,28 +48,13 @@ export default function OrdersPage() {
   const [collecting, setCollecting] = useState(false);
   const [refunding, setRefunding] = useState(false);
 
-  const load = useCallback(async () => {
+  function refreshOrders() {
     if (!branchId) return;
-    setLoading(true);
-    try {
-      const client = getApiClient();
-      const data = await client.listOrders(branchId, {
-        status: statusFilter || undefined,
-        limit: 50,
-      });
-      setOrders(data.items);
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Failed to load orders', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }, [branchId, statusFilter, toast]);
-
-  useEffect(() => {
-    load();
-    const interval = setInterval(load, 15000);
-    return () => clearInterval(interval);
-  }, [load]);
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.ordersList(branchId, statusFilter || undefined),
+    });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.navBadges(branchId) });
+  }
 
   useEffect(() => {
     if (!actionId) {
@@ -105,7 +95,7 @@ export default function OrdersPage() {
       toast('Order voided', 'success');
       setActionId(null);
       setReason('');
-      load();
+      refreshOrders();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Void failed', 'error');
     }
@@ -131,7 +121,7 @@ export default function OrdersPage() {
       toast(refundMode === 'partial' ? 'Partial refund processed' : 'Order refunded', 'success');
       setActionId(null);
       setReason('');
-      load();
+      refreshOrders();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Refund failed', 'error');
     } finally {
@@ -155,7 +145,7 @@ export default function OrdersPage() {
       });
       toast('Payment collected', 'success');
       setCollectId(null);
-      load();
+      refreshOrders();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Payment failed', 'error');
     } finally {
@@ -186,6 +176,12 @@ export default function OrdersPage() {
           </button>
         ))}
       </div>
+
+      {error ? (
+        <Card padding="lg">
+          <p className="text-sm text-danger">{error instanceof Error ? error.message : 'Failed to load orders'}</p>
+        </Card>
+      ) : null}
 
       {loading ? (
         <TableSkeleton rows={6} />

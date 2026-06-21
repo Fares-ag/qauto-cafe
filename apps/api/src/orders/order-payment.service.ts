@@ -295,7 +295,7 @@ export class OrderPaymentService {
           this.orderQueue.buildPaidEvent(paidOrder),
         );
       }
-      await this.jobs.enqueueOrderAggregation(paidOrder.id, 'order_paid');
+      this.jobs.scheduleOrderAggregation(paidOrder.id, 'order_paid');
       await this.audit.log({
         organizationId,
         branchId: paidOrder.branchId,
@@ -377,7 +377,7 @@ export class OrderPaymentService {
       order.branchId,
       this.orderQueue.buildVoidedEvent(order, dto.reason),
     );
-    await this.jobs.enqueueOrderAggregation(order.id, 'order_voided');
+    this.jobs.scheduleOrderAggregation(order.id, 'order_voided');
 
     await this.audit.log({
       organizationId,

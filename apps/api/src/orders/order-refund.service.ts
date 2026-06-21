@@ -357,7 +357,7 @@ export class OrderRefundService {
 
 
 
-    await this.jobs.enqueueOrderAggregation(order.id, 'order_refunded', {
+    this.jobs.scheduleOrderAggregation(order.id, 'order_refunded', {
       refundId: refund.id,
       lineIds: linesToRefund.map((l) => l.id),
     });

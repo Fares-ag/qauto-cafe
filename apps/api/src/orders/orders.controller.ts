@@ -1,11 +1,11 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { OrdersService } from './orders.service';
 import { OrderPaymentService } from './order-payment.service';
 import { OrderDeferService } from './order-defer.service';
 import { OrderQueueService } from './order-queue.service';
 import { OrderRefundService } from './order-refund.service';
-import { CreateOrderDto, UpdateOrderLinesDto } from './dto/order.dto';
+import { CreateOrderDto, AddOrderLineDto, UpdateOrderLineQuantityDto, UpdateOrderLinesDto } from './dto/order.dto';
 import { PayOrderDto, VoidOrderDto } from './dto/pay-order.dto';
 import { RefundOrderDto } from './dto/refund-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
@@ -71,6 +71,48 @@ export class OrdersController {
     @Body() dto: UpdateOrderLinesDto,
   ) {
     return this.ordersService.replaceLines(id, user.organizationId, dto.lines);
+  }
+
+  @Post(':id/lines')
+  @Permissions('order.update', 'pos.access')
+  addLine(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: AddOrderLineDto,
+  ) {
+    return this.ordersService.addLineToOrder(id, user.organizationId, dto);
+  }
+
+  @Delete(':id/lines')
+  @Permissions('order.update', 'pos.access')
+  clearLines(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.ordersService.clearOrderLines(id, user.organizationId);
+  }
+
+  @Patch(':id/lines/:lineId')
+  @Permissions('order.update', 'pos.access')
+  updateLineQuantity(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @Body() dto: UpdateOrderLineQuantityDto,
+  ) {
+    return this.ordersService.updateOrderLineQuantity(
+      id,
+      user.organizationId,
+      lineId,
+      dto.quantity,
+    );
+  }
+
+  @Delete(':id/lines/:lineId')
+  @Permissions('order.update', 'pos.access')
+  removeLine(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+  ) {
+    return this.ordersService.removeOrderLine(id, user.organizationId, lineId);
   }
 
   @Patch(':id/customer')

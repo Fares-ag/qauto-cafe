@@ -19,6 +19,8 @@
     "db:seed": "prisma db seed",
     "db:import-menu": "tsx prisma/import-menu-from-excel.ts",
     "db:import-menu:dry": "tsx prisma/import-menu-from-excel.ts --dry-run",
+    "db:apply-menu-images": "tsx prisma/apply-menu-images.ts",
+    "db:apply-menu-images:dry": "tsx prisma/apply-menu-images.ts --dry-run",
     "db:import-directory": "tsx prisma/import-directory-from-excel.ts --import",
     "db:import-directory:dry": "tsx prisma/import-directory-from-excel.ts --import --dry-run",
     "db:import-directory:generate": "tsx prisma/import-directory-from-excel.ts --generate-ts",

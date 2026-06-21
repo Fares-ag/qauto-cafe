@@ -144,3 +144,19 @@ export class UpdateOrderLinesDto {
 
 }
 
+
+
+export class AddOrderLineDto extends OrderLineInputDto {}
+
+
+
+export class UpdateOrderLineQuantityDto {
+
+  @IsInt()
+
+  @Min(1)
+
+  quantity!: number;
+
+}
+
