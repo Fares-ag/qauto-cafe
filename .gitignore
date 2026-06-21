@@ -11,4 +11,6 @@ coverage
 apps/web/test-results/
 apps/web/tsconfig.tsbuildinfo
 
+uploads/
+
 .vercel

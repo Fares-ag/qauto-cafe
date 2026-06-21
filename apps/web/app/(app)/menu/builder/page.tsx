@@ -16,6 +16,7 @@ import { getApiClient } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth-store';
 import { ConfirmDialog, Modal } from '@/components/admin/modal';
 import { MenuItemDetailModal } from '@/components/admin/menu-item-detail-modal';
+import { MenuItemImageField } from '@/components/admin/menu-item-image-field';
 
 type Tab = 'categories' | 'items' | 'modifiers';
 type Category = Awaited<ReturnType<ReturnType<typeof getApiClient>['getMenuAdminCategories']>>[number];
@@ -49,6 +50,7 @@ export default function MenuBuilderPage() {
     basePrice: '',
     description: '',
   });
+  const [itemImageFile, setItemImageFile] = useState<File | null>(null);
   const [groupForm, setGroupForm] = useState({ name: '', minSelections: '0', maxSelections: '1' });
   const [modifierForm, setModifierForm] = useState({
     groupId: '',
@@ -124,6 +126,11 @@ export default function MenuBuilderPage() {
     setSubmitting(true);
     try {
       const client = getApiClient();
+      let imageUrl: string | undefined;
+      if (itemImageFile) {
+        const uploaded = await client.uploadMenuItemImage(itemImageFile);
+        imageUrl = uploaded.url;
+      }
       await client.createMenuItem({
         categoryId: itemForm.categoryId,
         name: itemForm.name,
@@ -131,9 +138,11 @@ export default function MenuBuilderPage() {
         type: itemForm.type === 'BEVERAGE' ? 'DRINK' : 'SNACK',
         basePrice: itemForm.basePrice,
         description: itemForm.description || undefined,
+        imageUrl,
       });
       toast('Menu item created', 'success');
       setItemForm((f) => ({ ...f, name: '', code: '', basePrice: '', description: '' }));
+      setItemImageFile(null);
       load();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Create failed', 'error');
@@ -466,6 +475,11 @@ export default function MenuBuilderPage() {
                 label="Description"
                 value={itemForm.description}
                 onChange={(e) => setItemForm((f) => ({ ...f, description: e.target.value }))}
+              />
+              <MenuItemImageField
+                file={itemImageFile}
+                onFileChange={setItemImageFile}
+                disabled={submitting}
               />
               <Button type="submit" variant="primary" loading={submitting}>
                 Create item

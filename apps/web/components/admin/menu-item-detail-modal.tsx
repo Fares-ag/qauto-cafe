@@ -2,11 +2,19 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Badge, Button, Input, useToast } from '@qauto/ui';
-import { ConfirmDialog, Modal, selectClassName } from '@/components/admin/modal';
+import { ConfirmDialog, Modal } from '@/components/admin/modal';
+import { MenuItemImageField } from '@/components/admin/menu-item-image-field';
 import { getApiClient } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth-store';
 
-type MenuItem = { id: string; name: string; code: string; basePrice: string; categoryName: string };
+type MenuItem = {
+  id: string;
+  name: string;
+  code: string;
+  basePrice: string;
+  categoryName: string;
+  imageUrl?: string | null;
+};
 type Size = { id: string; name: string; code: string; isDefault: boolean; priceAdjustment: string };
 type ModifierGroup = { id: string; name: string };
 
@@ -26,6 +34,8 @@ export function MenuItemDetailModal({ item, modifierGroups, onClose, onUpdated }
   const [submitting, setSubmitting] = useState(false);
   const [sizeForm, setSizeForm] = useState({ name: '', code: '', priceAdjustment: '0' });
   const [editForm, setEditForm] = useState({ name: '', basePrice: '', description: '', isActive: true, priceOverride: '' });
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [clearedImage, setClearedImage] = useState(false);
   const [deleteSize, setDeleteSize] = useState<Size | null>(null);
 
   const load = useCallback(async () => {
@@ -42,6 +52,8 @@ export function MenuItemDetailModal({ item, modifierGroups, onClose, onUpdated }
         isActive: true,
         priceOverride: '',
       });
+      setImageFile(null);
+      setClearedImage(false);
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to load item details', 'error');
     } finally {
@@ -58,11 +70,25 @@ export function MenuItemDetailModal({ item, modifierGroups, onClose, onUpdated }
     setSubmitting(true);
     try {
       const client = getApiClient();
-      await client.updateMenuItem(item.id, {
+      const patch: {
+        name: string;
+        basePrice: string;
+        isActive: boolean;
+        imageUrl?: string;
+      } = {
         name: editForm.name,
         basePrice: editForm.basePrice,
         isActive: editForm.isActive,
-      });
+      };
+
+      if (imageFile) {
+        const uploaded = await client.uploadMenuItemImage(imageFile);
+        patch.imageUrl = uploaded.url;
+      } else if (clearedImage) {
+        patch.imageUrl = '';
+      }
+
+      await client.updateMenuItem(item.id, patch);
       if (branchId && editForm.priceOverride) {
         await client.setMenuItemPriceOverride(item.id, {
           branchId,
@@ -145,6 +171,17 @@ export function MenuItemDetailModal({ item, modifierGroups, onClose, onUpdated }
       >
         {loading ? <p className="text-sm text-ink-muted">Loading…</p> : (
           <div className="space-y-6">
+            <MenuItemImageField
+              currentImageUrl={clearedImage ? null : item?.imageUrl}
+              file={imageFile}
+              disabled={submitting}
+              onClearCurrent={() => setClearedImage(true)}
+              onFileChange={(file) => {
+                setImageFile(file);
+                if (file) setClearedImage(false);
+              }}
+            />
+
             <div className="grid gap-3 sm:grid-cols-2">
               <Input label="Name" value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} />
               <Input label="Base price (QAR)" value={editForm.basePrice} onChange={(e) => setEditForm((f) => ({ ...f, basePrice: e.target.value }))} />

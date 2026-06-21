@@ -19,4 +19,5 @@ echo "Applying database migrations..."
 npx prisma migrate deploy
 
 echo "Starting API..."
+mkdir -p uploads/menu
 exec node apps/api/dist/main.js

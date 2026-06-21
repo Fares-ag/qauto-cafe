@@ -250,7 +250,9 @@ export class MenuAdminService {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
         ...(dto.basePrice !== undefined ? { basePrice: dto.basePrice } : {}),
         ...(dto.description !== undefined ? { description: dto.description } : {}),
-        ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl } : {}),
+        ...(dto.imageUrl !== undefined
+          ? { imageUrl: dto.imageUrl === '' ? null : dto.imageUrl }
+          : {}),
         ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },

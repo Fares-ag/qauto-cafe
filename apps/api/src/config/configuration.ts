@@ -5,6 +5,7 @@ export default () => ({
   terminalEnrollmentSecret: process.env.TERMINAL_ENROLLMENT_SECRET ?? '',
   auditRetentionDays: parseInt(process.env.AUDIT_RETENTION_DAYS ?? '365', 10),
   healthCheckSecret: process.env.HEALTH_CHECK_SECRET ?? '',
+  uploadsDir: process.env.UPLOADS_DIR ?? 'uploads',
   jwt: {
     accessSecret:
       process.env.JWT_ACCESS_SECRET ?? 'dev-access-secret-change-in-production',

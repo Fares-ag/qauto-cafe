@@ -1,3 +1,5 @@
+import { join } from 'path';
+import express from 'express';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -18,6 +20,9 @@ async function bootstrap() {
   const corsOrigin = config.get<string>('CORS_ORIGIN', 'http://localhost:3000');
 
   applySecurityMiddleware(app);
+
+  const uploadsDir = join(process.cwd(), config.get<string>('uploadsDir', 'uploads'));
+  app.use('/api/v1/uploads', express.static(uploadsDir));
 
   const socketAdapter = new SocketIoAdapter(app, config);
   app.useWebSocketAdapter(socketAdapter);

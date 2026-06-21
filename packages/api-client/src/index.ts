@@ -1085,6 +1085,45 @@ export class ApiClient {
     return this.request('/menu/admin/items', { method: 'POST', body: JSON.stringify(body) });
   }
 
+  async uploadMenuItemImage(file: File) {
+    const form = new FormData();
+    form.append('file', file);
+
+    const headers = new Headers();
+    const token = this.options.getAccessToken?.();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const branchHeader = this.options.getBranchId?.();
+    if (branchHeader) headers.set('X-Branch-Id', branchHeader);
+
+    const response = await fetch(`${this.options.baseUrl}/menu/admin/upload-image`, {
+      method: 'POST',
+      headers,
+      body: form,
+      credentials: 'include',
+    });
+
+    const text = await response.text().catch(() => '');
+    let data: Record<string, unknown> = {};
+    if (text) {
+      try {
+        data = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        data = {};
+      }
+    }
+
+    if (!response.ok) {
+      throw new ApiError({
+        type: (data.type as string) ?? 'unknown',
+        title: (data.title as string) ?? 'Error',
+        status: response.status,
+        detail: (typeof data.detail === 'string' && data.detail) || 'Image upload failed',
+      });
+    }
+
+    return data as { url: string };
+  }
+
   async updateMenuItem(
     menuItemId: string,
     body: {
@@ -1093,6 +1132,7 @@ export class ApiClient {
       categoryId?: string;
       description?: string;
       isActive?: boolean;
+      imageUrl?: string;
     },
   ) {
     return this.request(`/menu/admin/items/${menuItemId}`, {

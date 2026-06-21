@@ -7,11 +7,19 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { writeFile } from 'fs/promises';
+import { join, extname } from 'path';
+import { randomUUID } from 'crypto';
 import { IsBoolean, IsOptional, IsString } from 'class-validator';
 import { MenuService } from './menu.service';
 import { MenuAdminService } from './menu-admin.service';
+import { MenuImageStorageService } from './menu-image.storage';
 import {
   CreateMenuCategoryDto,
   CreateMenuItemDto,
@@ -55,6 +63,7 @@ export class MenuController {
   constructor(
     private readonly menuService: MenuService,
     private readonly menuAdmin: MenuAdminService,
+    private readonly menuImages: MenuImageStorageService,
   ) {}
 
   @Get('catalog')
@@ -108,6 +117,41 @@ export class MenuController {
   @Permissions('menu.manage')
   createItem(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateMenuItemDto) {
     return this.menuAdmin.createItem(user.organizationId, user.id, dto);
+  }
+
+  @Post('admin/upload-image')
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @Permissions('menu.manage')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  async uploadImage(
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    this.menuImages.assertValidUpload(file.mimetype, file.size);
+
+    const ext = extname(file.originalname).toLowerCase();
+    const safeExt =
+      ext && ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext)
+        ? ext === '.jpeg'
+          ? '.jpg'
+          : ext
+        : file.mimetype === 'image/png'
+          ? '.png'
+          : file.mimetype === 'image/webp'
+            ? '.webp'
+            : file.mimetype === 'image/gif'
+              ? '.gif'
+              : '.jpg';
+
+    const filename = `${randomUUID()}${safeExt}`;
+    const dir = this.menuImages.orgDir(user.organizationId);
+    await writeFile(join(dir, filename), file.buffer);
+
+    return { url: this.menuImages.publicUrl(user.organizationId, filename) };
   }
 
   @Patch('admin/items/:menuItemId')
