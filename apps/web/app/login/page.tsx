@@ -36,7 +36,9 @@ export default function AdminLoginPage() {
       router.push('/dashboard');
     } catch (err) {
       if (err instanceof ApiError) {
-        const fieldMessages = err.body.errors?.map((e) => e.message).filter(Boolean);
+        const fieldMessages = err.body.errors
+          ?.map((e) => ('message' in e ? e.message : undefined))
+          .filter((m): m is string => Boolean(m));
         setError(fieldMessages?.length ? fieldMessages.join(' · ') : err.body.detail);
       } else if (err instanceof TypeError) {
         setError('Cannot reach the API. Ensure the dev server is running (npm run dev).');
