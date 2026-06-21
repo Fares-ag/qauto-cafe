@@ -34,6 +34,14 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     void this.scheduleAuditRetention();
 
+    const bullmqEnabled = this.config.get<boolean>('bullmqEnabled', true);
+    if (!bullmqEnabled) {
+      this.logger.log(
+        'BullMQ disabled — report aggregation runs in-process (set BULLMQ_ENABLED=true with a dedicated Redis for queues)',
+      );
+      return;
+    }
+
     const connected = await this.redis.connect();
     if (!connected) {
       this.logger.warn('BullMQ disabled — Redis not available');
@@ -48,8 +56,6 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     };
 
     this.queue = new Queue<AggregationJobData>(AGGREGATION_QUEUE, { connection });
-
-    void this.scheduleAuditRetention();
 
     if (!workerEnabled) {
       this.logger.log('BullMQ worker disabled — queue-only mode (WORKER_ENABLED=false)');
@@ -102,16 +108,25 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    await this.queue.add(
-      action,
-      { orderId, action, refundId: options.refundId, lineIds: options.lineIds },
-      {
-        removeOnComplete: 100,
-        removeOnFail: 50,
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 1000 },
-      },
-    );
+    try {
+      await this.queue.add(
+        action,
+        { orderId, action, refundId: options.refundId, lineIds: options.lineIds },
+        {
+          removeOnComplete: 100,
+          removeOnFail: 50,
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 1000 },
+        },
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Queue add failed for ${action} on ${orderId}, running in-process: ${
+          error instanceof Error ? error.message : error
+        }`,
+      );
+      await this.aggregation.aggregateOrder(orderId, action, options);
+    }
   }
 
   scheduleOrderAggregation(
