@@ -594,6 +594,7 @@ model StockMovement {
   createdBy  User?       @relation(fields: [createdById], references: [id])
 
   @@index([branchId, ingredientId, createdAt])
+  @@index([branchId, type, createdAt])
   @@index([referenceType, referenceId])
   @@index([layerId])
   @@index([type, createdAt])
@@ -974,6 +975,7 @@ model Order {
   @@unique([branchId, orderNumber])
   @@index([organizationId, createdAt])
   @@index([branchId, status, createdAt])
+  @@index([branchId, organizationId, status, paidAt])
   @@index([branchId, businessDate])
   @@index([shiftId])
   @@index([createdById, createdAt])
@@ -1425,6 +1427,7 @@ model OrderAggregationLedger {
   order Order @relation(fields: [orderId], references: [id])
 
   @@index([orderId])
+  @@index([orderId, action])
   @@map("order_aggregation_ledger")
 }
 

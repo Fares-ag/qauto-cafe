@@ -7,6 +7,7 @@ import { DomainEventsService } from '../events/domain-events.service';
 import { AuditService } from '../audit/audit.service';
 import { UpdateOrderCustomerDto } from './dto/update-order-customer.dto';
 import { decimalToString } from '../common/utils/decimal.util';
+import { PRISMA_TX_OPTIONS } from '../prisma/transaction-options';
 
 @Injectable()
 export class OrderDeferService {
@@ -90,23 +91,32 @@ export class OrderDeferService {
     if (order.status !== 'DRAFT') throw new BadRequestException('Only draft orders can be deferred');
     if (!order.lines.length) throw new BadRequestException('Order has no lines');
 
-    const { orderCogs } = await this.fulfillment.fulfillOrder(order, userId);
+    const prep = await this.fulfillment.prepareFulfillment(order);
     const now = new Date();
+    let consumedIngredientIds: string[] = [];
 
-    const updated = await this.prisma.order.update({
-      where: { id: order.id },
-      data: {
-        status: 'PENDING_PAYMENT',
-        cogsTotal: orderCogs,
-        deferredAt: now,
-      },
-      include: {
-        lines: {
-          orderBy: { sortOrder: 'asc' },
-          include: { modifiers: true },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const { orderCogs, consumedIngredientIds: consumed } =
+        await this.fulfillment.applyFulfillmentInTx(tx, order, userId, prep);
+      consumedIngredientIds = consumed;
+
+      return tx.order.update({
+        where: { id: order.id },
+        data: {
+          status: 'PENDING_PAYMENT',
+          cogsTotal: orderCogs,
+          deferredAt: now,
         },
-      },
-    });
+        include: {
+          lines: {
+            orderBy: { sortOrder: 'asc' },
+            include: { modifiers: true },
+          },
+        },
+      });
+    }, PRISMA_TX_OPTIONS);
+
+    this.fulfillment.scheduleEightySixPropagation(order.branchId, consumedIngredientIds);
 
     this.domainEvents.emitOrderPaid(
       updated.branchId,

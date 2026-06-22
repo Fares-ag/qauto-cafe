@@ -16,20 +16,21 @@ import {
 import { getBusinessDate, formatQar } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth-store';
 import { DashboardChartsLazy } from '@/components/DashboardChartsLazy';
-import { useDashboardData } from '@/lib/queries';
+import { useDashboardData, useOrderQueue, useUnpaidReport } from '@/lib/queries';
 
 export default function DashboardPage() {
   const branchId = useAuthStore((s) => s.branchId);
   const [businessDate, setBusinessDate] = useState(getBusinessDate());
   const { data, isLoading, error, isFetching } = useDashboardData(branchId, businessDate);
+  const { data: queue = [] } = useOrderQueue(branchId, 60_000);
+  const { data: unpaidReport } = useUnpaidReport(branchId, 60_000);
 
   const loading = isLoading && !data;
   const analytics = data?.analytics;
   const products = data?.products ?? [];
-  const queue = data?.queue ?? [];
   const stock = data?.stock ?? [];
-  const unpaidCount = data?.unpaidCount ?? 0;
-  const outstandingTotal = data?.outstandingTotal ?? '0.0000';
+  const unpaidCount = unpaidReport?.orderCount ?? 0;
+  const outstandingTotal = unpaidReport?.outstandingTotal ?? '0.0000';
 
   const kpis = analytics?.kpis;
   const queueBreakdown = useMemo(

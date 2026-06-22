@@ -250,8 +250,14 @@ export class MenuController {
   @Get('admin/modifier-groups')
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @Permissions('menu.view', 'modifier.manage')
-  listModifierGroups(@CurrentUser() user: AuthenticatedUser) {
-    return this.menuAdmin.listModifierGroups(user.organizationId);
+  listModifierGroups(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('includeModifiers') includeModifiers?: string,
+  ) {
+    return this.menuAdmin.listModifierGroups(
+      user.organizationId,
+      includeModifiers === 'true',
+    );
   }
 
   @Post('admin/modifier-groups')

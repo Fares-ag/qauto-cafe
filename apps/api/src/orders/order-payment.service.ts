@@ -139,7 +139,6 @@ export class OrderPaymentService {
     }
 
     const isPayLaterCollection = isPayLater && !isDraft;
-    const consumedIngredientIds: string[] = [];
 
     const resolveGiftCardRef = (payment: (typeof dto.payments)[number]) =>
       payment.reference?.toUpperCase().startsWith('GC-')
@@ -209,13 +208,14 @@ export class OrderPaymentService {
           }
         }, PRISMA_TX_OPTIONS);
       } else {
-        const { orderCogs, consumedIngredientIds: consumed } = await this.fulfillment.fulfillOrder(
-          order,
-          userId,
-        );
-        consumedIngredientIds.push(...consumed);
+        const prep = await this.fulfillment.prepareFulfillment(order);
+        let consumedIngredientIds: string[] = [];
 
         await this.prisma.$transaction(async (tx) => {
+          const { orderCogs, consumedIngredientIds: consumed } =
+            await this.fulfillment.applyFulfillmentInTx(tx, order, userId, prep);
+          consumedIngredientIds = consumed;
+
           for (const payment of dto.payments) {
             const giftCardRef = resolveGiftCardRef(payment);
             if (giftCardRef) {
@@ -269,6 +269,8 @@ export class OrderPaymentService {
             await this.loyalty.earnOnPayment(tx, order.customerId, order.id, order.total);
           }
         }, PRISMA_TX_OPTIONS);
+
+        this.fulfillment.scheduleEightySixPropagation(order.branchId, consumedIngredientIds);
       }
     } catch (error) {
       if (error instanceof InsufficientStockError) throw error;
@@ -366,7 +368,7 @@ export class OrderPaymentService {
     }, PRISMA_TX_OPTIONS);
 
     for (const ingredientId of ingredientIds) {
-      await this.eightySix.propagateAfterRestock(order.branchId, ingredientId);
+      void this.eightySix.propagateAfterRestock(order.branchId, ingredientId).catch(() => undefined);
     }
 
     this.domainEvents.emitOrderVoided(
@@ -375,15 +377,17 @@ export class OrderPaymentService {
     );
     this.jobs.scheduleOrderAggregation(order.id, 'order_voided');
 
-    await this.audit.log({
-      organizationId,
-      branchId: order.branchId,
-      userId,
-      action: 'VOID',
-      entityType: 'order',
-      entityId: order.id,
-      afterState: { reason: dto.reason },
-    });
+    void this.audit
+      .log({
+        organizationId,
+        branchId: order.branchId,
+        userId,
+        action: 'VOID',
+        entityType: 'order',
+        entityId: order.id,
+        afterState: { reason: dto.reason },
+      })
+      .catch(() => undefined);
 
     return { success: true, orderId: order.id, status: 'VOIDED' };
   }

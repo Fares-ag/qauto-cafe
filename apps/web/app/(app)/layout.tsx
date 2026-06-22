@@ -18,7 +18,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const kitchenDisplayMode = useUiStore((s) => s.kitchenDisplayMode);
   const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
-  const { data: badges } = useNavBadges(branchId);
+  const minimalChrome = pathname === '/kitchen' && kitchenDisplayMode;
+  const { data: badges } = useNavBadges(branchId, {
+    enabled: Boolean(branchId) && !minimalChrome,
+    refetchInterval: minimalChrome ? false : 30_000,
+  });
 
   useEffect(() => {
     if (!hasHydrated) return;
@@ -50,8 +54,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       }),
     [sessionType, badges?.unpaidCount, badges?.kitchenCount],
   );
-
-  const minimalChrome = pathname === '/kitchen' && kitchenDisplayMode;
 
   if (!hasHydrated || !user) {
     return (

@@ -293,14 +293,13 @@ export default function SellPage() {
   function invalidateMenuCatalog() {
     if (!branchId) return;
     void queryClient.invalidateQueries({ queryKey: queryKeys.menuCatalog(branchId) });
-    void queryClient.invalidateQueries({ queryKey: ['pos-bootstrap', branchId] });
   }
 
   function invalidateOrderQueries() {
     if (!branchId) return;
-    void queryClient.invalidateQueries({ queryKey: queryKeys.navBadges(branchId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.unpaidCount(branchId) });
     void queryClient.invalidateQueries({ queryKey: queryKeys.orderQueue(branchId) });
-    void queryClient.invalidateQueries({ queryKey: ['orders-list', branchId] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.ordersList(branchId) });
   }
 
   async function handleSelectItem(item: MenuCatalogItem) {

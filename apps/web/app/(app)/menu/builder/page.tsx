@@ -74,22 +74,21 @@ export default function MenuBuilderPage() {
       const [categoriesData, itemsData, groupsData] = await Promise.all([
         client.getMenuAdminCategories(),
         client.getMenuAdminItems(branchId),
-        client.getModifierGroups(),
+        client.getModifierGroups({ includeModifiers: true }),
       ]);
-      const groupsWithModifiers = await Promise.all(
-        groupsData.map(async (group) => ({
-          ...group,
-          modifiers: await client.listModifiers(group.id),
-        })),
-      );
       setCategories(categoriesData);
       setItems(itemsData);
-      setModifierGroups(groupsWithModifiers);
+      setModifierGroups(
+        groupsData.map((group) => ({
+          ...group,
+          modifiers: group.modifiers ?? [],
+        })),
+      );
       if (!itemForm.categoryId && categoriesData[0]) {
         setItemForm((f) => ({ ...f, categoryId: categoriesData[0].id }));
       }
-      if (!modifierForm.groupId && groupsWithModifiers[0]) {
-        setModifierForm((f) => ({ ...f, groupId: groupsWithModifiers[0].id }));
+      if (!modifierForm.groupId && groupsData[0]) {
+        setModifierForm((f) => ({ ...f, groupId: groupsData[0].id }));
       }
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to load menu builder', 'error');

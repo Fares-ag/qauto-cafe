@@ -7,7 +7,9 @@ import { EightySixService } from '../inventory/eighty-six.service';
 import { InsufficientStockError, LayerAllocation } from '../inventory/inventory.types';
 import { PRISMA_TX_OPTIONS } from '../prisma/transaction-options';
 
-type OrderWithLines = {
+type ResolvedBom = Awaited<ReturnType<RecipeEngineService['resolveBom']>>;
+
+export type OrderWithLines = {
   id: string;
   branchId: string;
   lines: Array<{
@@ -19,6 +21,21 @@ type OrderWithLines = {
   }>;
 };
 
+export type FulfillmentLineBom = {
+  line: OrderWithLines['lines'][number];
+  bom: ResolvedBom;
+};
+
+export type FulfillmentPrep = {
+  existingCogs: Prisma.Decimal;
+  lineBoms: FulfillmentLineBom[];
+};
+
+export type FulfillmentResult = {
+  orderCogs: Prisma.Decimal;
+  consumedIngredientIds: string[];
+};
+
 @Injectable()
 export class OrderFulfillmentService {
   constructor(
@@ -28,12 +45,30 @@ export class OrderFulfillmentService {
     private readonly eightySix: EightySixService,
   ) {}
 
-  async fulfillOrder(order: OrderWithLines, userId: string): Promise<{
-    orderCogs: Prisma.Decimal;
-    consumedIngredientIds: string[];
-  }> {
+  async prepareFulfillment(order: OrderWithLines): Promise<FulfillmentPrep> {
+    const existingSnapshots = await this.prisma.orderLineBomSnapshot.findMany({
+      where: { orderLineId: { in: order.lines.map((line) => line.id) } },
+      select: { orderLineId: true },
+    });
+    const fulfilledLineIds = new Set(existingSnapshots.map((snapshot) => snapshot.orderLineId));
+    const pendingLines = order.lines.filter((line) => !fulfilledLineIds.has(line.id));
+
+    const existingCogs =
+      fulfilledLineIds.size > 0
+        ? (
+            await this.prisma.orderLine.findMany({
+              where: { id: { in: Array.from(fulfilledLineIds) } },
+              select: { lineCogs: true },
+            })
+          ).reduce((sum, line) => sum.add(line.lineCogs), new Prisma.Decimal(0))
+        : new Prisma.Decimal(0);
+
+    if (pendingLines.length === 0) {
+      return { existingCogs, lineBoms: [] };
+    }
+
     const lineBoms = await Promise.all(
-      order.lines.map(async (line) => {
+      pendingLines.map(async (line) => {
         const bom = await this.recipeEngine.resolveBom({
           menuItemId: line.menuItemId,
           sizeId: line.sizeId,
@@ -51,77 +86,106 @@ export class OrderFulfillmentService {
       throw new InsufficientStockError(shortages);
     }
 
-    const consumedIngredientIds = new Set<string>();
-    let orderCogs = new Prisma.Decimal(0);
+    return { existingCogs, lineBoms };
+  }
 
-    await this.prisma.$transaction(async (tx) => {
-      for (const { line, bom } of lineBoms) {
-        const consumption = await this.fifo.consume(
-          tx,
-          order.branchId,
-          bom.lines,
-          { type: 'order_line', id: line.id },
-          userId,
+  async applyFulfillmentInTx(
+    tx: Prisma.TransactionClient,
+    order: OrderWithLines,
+    userId: string,
+    prep: FulfillmentPrep,
+  ): Promise<FulfillmentResult> {
+    const consumedIngredientIds = new Set<string>();
+    let pendingCogs = new Prisma.Decimal(0);
+
+    for (const { line, bom } of prep.lineBoms) {
+      const consumption = await this.fifo.consume(
+        tx,
+        order.branchId,
+        bom.lines,
+        { type: 'order_line', id: line.id },
+        userId,
+      );
+
+      pendingCogs = pendingCogs.add(consumption.totalCost);
+      bom.lines.forEach((bomLine) => consumedIngredientIds.add(bomLine.ingredientId));
+
+      const snapshot = await tx.orderLineBomSnapshot.create({
+        data: {
+          orderLineId: line.id,
+          recipeId: bom.recipeId,
+          recipeVersion: bom.recipeVersion,
+          totalCogs: consumption.totalCost,
+        },
+      });
+
+      const allocationsByIngredient = this.groupAllocations(consumption.allocations);
+
+      for (const bomLine of bom.lines) {
+        const lineAllocations = allocationsByIngredient.get(bomLine.ingredientId) ?? [];
+        const extendedCost = lineAllocations.reduce(
+          (acc, allocation) => acc.add(allocation.extendedCost),
+          new Prisma.Decimal(0),
         );
 
-        orderCogs = orderCogs.add(consumption.totalCost);
-        bom.lines.forEach((l) => consumedIngredientIds.add(l.ingredientId));
-
-        const snapshot = await tx.orderLineBomSnapshot.create({
+        const snapshotLine = await tx.orderLineBomSnapshotLine.create({
           data: {
-            orderLineId: line.id,
-            recipeId: bom.recipeId,
-            recipeVersion: bom.recipeVersion,
-            totalCogs: consumption.totalCost,
+            snapshotId: snapshot.id,
+            ingredientId: bomLine.ingredientId,
+            ingredientName: bomLine.ingredientName,
+            quantity: bomLine.quantity,
+            uomId: bomLine.uomId,
+            extendedCost,
           },
         });
 
-        const allocationsByIngredient = this.groupAllocations(consumption.allocations);
-
-        for (const bomLine of bom.lines) {
-          const lineAllocations = allocationsByIngredient.get(bomLine.ingredientId) ?? [];
-          const extendedCost = lineAllocations.reduce(
-            (acc, a) => acc.add(a.extendedCost),
-            new Prisma.Decimal(0),
-          );
-
-          const snapshotLine = await tx.orderLineBomSnapshotLine.create({
+        for (const allocation of lineAllocations) {
+          await tx.orderLineLayerAllocation.create({
             data: {
-              snapshotId: snapshot.id,
-              ingredientId: bomLine.ingredientId,
-              ingredientName: bomLine.ingredientName,
-              quantity: bomLine.quantity,
-              uomId: bomLine.uomId,
-              extendedCost,
+              snapshotLineId: snapshotLine.id,
+              layerId: allocation.layerId,
+              ingredientId: allocation.ingredientId,
+              quantity: allocation.quantity,
+              unitCost: allocation.unitCost,
+              extendedCost: allocation.extendedCost,
             },
           });
-
-          for (const allocation of lineAllocations) {
-            await tx.orderLineLayerAllocation.create({
-              data: {
-                snapshotLineId: snapshotLine.id,
-                layerId: allocation.layerId,
-                ingredientId: allocation.ingredientId,
-                quantity: allocation.quantity,
-                unitCost: allocation.unitCost,
-                extendedCost: allocation.extendedCost,
-              },
-            });
-          }
         }
-
-        await tx.orderLine.update({
-          where: { id: line.id },
-          data: { lineCogs: consumption.totalCost },
-        });
       }
-    }, PRISMA_TX_OPTIONS);
 
+      await tx.orderLine.update({
+        where: { id: line.id },
+        data: { lineCogs: consumption.totalCost },
+      });
+    }
+
+    return {
+      orderCogs: prep.existingCogs.add(pendingCogs),
+      consumedIngredientIds: Array.from(consumedIngredientIds),
+    };
+  }
+
+  scheduleEightySixPropagation(branchId: string, ingredientIds: string[]) {
+    if (!ingredientIds.length) return;
     void this.eightySix
-      .propagateAfterConsumption(order.branchId, Array.from(consumedIngredientIds))
+      .propagateAfterConsumption(branchId, ingredientIds)
       .catch(() => undefined);
+  }
 
-    return { orderCogs, consumedIngredientIds: Array.from(consumedIngredientIds) };
+  async fulfillOrder(order: OrderWithLines, userId: string): Promise<FulfillmentResult> {
+    const prep = await this.prepareFulfillment(order);
+
+    if (prep.lineBoms.length === 0) {
+      return { orderCogs: prep.existingCogs, consumedIngredientIds: [] };
+    }
+
+    const result = await this.prisma.$transaction(
+      (tx) => this.applyFulfillmentInTx(tx, order, userId, prep),
+      PRISMA_TX_OPTIONS,
+    );
+
+    this.scheduleEightySixPropagation(order.branchId, result.consumedIngredientIds);
+    return result;
   }
 
   private groupAllocations(allocations: LayerAllocation[]) {

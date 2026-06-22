@@ -3,6 +3,7 @@ export const queryKeys = {
   currentShift: (branchId: string, terminalId: string) =>
     ['current-shift', branchId, terminalId] as const,
   navBadges: (branchId: string) => ['nav-badges', branchId] as const,
+  unpaidCount: (branchId: string) => ['unpaid-count', branchId] as const,
   dashboard: (branchId: string, businessDate: string) =>
     ['dashboard', branchId, businessDate] as const,
   ordersList: (branchId: string, status?: string) =>

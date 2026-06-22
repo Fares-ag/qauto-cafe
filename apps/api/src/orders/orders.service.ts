@@ -9,6 +9,34 @@ import { CreateOrderDto, OrderLineInputDto, UpdateOrderLinesDto } from './dto/or
 import { decimalToString } from '../common/utils/decimal.util';
 import { OrderDiscountService } from './order-discount.service';
 
+interface MenuItemForPricing {
+  id: string;
+  name: string;
+  type: string;
+  basePrice: Prisma.Decimal;
+  taxRate: Prisma.Decimal;
+  sizes: Array<{
+    id: string;
+    name: string;
+    priceAdjustment: Prisma.Decimal;
+    isDefault: boolean;
+  }>;
+  branchAvailability: Array<{
+    priceOverride: Prisma.Decimal | null;
+    is86: boolean;
+    isAvailable: boolean;
+  }>;
+  modifierGroups: Array<{
+    modifierGroup: {
+      modifiers: Array<{
+        id: string;
+        name: string;
+        priceAdjustment: Prisma.Decimal;
+      }>;
+    };
+  }>;
+}
+
 interface ResolvedLine {
   menuItemId: string;
   sizeId: string | null;
@@ -125,9 +153,7 @@ export class OrdersService {
   async replaceLines(orderId: string, organizationId: string, lines: OrderLineInputDto[]) {
     const order = await this.getDraftOrder(orderId, organizationId);
 
-    const resolved = await Promise.all(
-      lines.map((line, index) => this.resolveLine(order.branchId, line, index)),
-    );
+    const resolved = await this.resolveLines(order.branchId, lines);
 
     const totals = this.calculateOrderTotals(resolved);
 
@@ -205,7 +231,12 @@ export class OrdersService {
 
     const existing = order.lines;
 
-    const resolved = await this.resolveLine(order.branchId, input, existing.length);
+    const menuItems = await this.loadMenuItemPricingMap(order.branchId, [input.menuItemId]);
+    const item = menuItems.get(input.menuItemId);
+    if (!item) {
+      throw new NotFoundException(`Menu item not found: ${input.menuItemId}`);
+    }
+    const resolved = this.resolveLineFromItem(item, input);
     const match = existing.find((line) => this.linesMatch(line, input));
 
     await this.prisma.$transaction(
@@ -467,26 +498,50 @@ export class OrdersService {
     }
   }
 
-  private async resolveLine(branchId: string, input: OrderLineInputDto, sortOrder: number): Promise<ResolvedLine> {
-    const item = await this.prisma.menuItem.findFirst({
-      where: { id: input.menuItemId, isActive: true, deletedAt: null },
-      include: {
-        sizes: true,
-        branchAvailability: { where: { branchId } },
-        modifierGroups: {
-          include: {
-            modifierGroup: {
-              include: { modifiers: true },
-            },
+  private menuItemPricingInclude(branchId: string) {
+    return {
+      sizes: true,
+      branchAvailability: { where: { branchId } },
+      modifierGroups: {
+        include: {
+          modifierGroup: {
+            include: { modifiers: true },
           },
         },
       },
-    });
+    };
+  }
 
-    if (!item) {
-      throw new NotFoundException(`Menu item not found: ${input.menuItemId}`);
+  private async loadMenuItemPricingMap(branchId: string, menuItemIds: string[]) {
+    const uniqueIds = [...new Set(menuItemIds)];
+    if (!uniqueIds.length) {
+      return new Map<string, MenuItemForPricing>();
     }
 
+    const items = await this.prisma.menuItem.findMany({
+      where: { id: { in: uniqueIds }, isActive: true, deletedAt: null },
+      include: this.menuItemPricingInclude(branchId),
+    });
+
+    return new Map(items.map((item) => [item.id, item as MenuItemForPricing]));
+  }
+
+  private async resolveLines(branchId: string, inputs: OrderLineInputDto[]) {
+    const menuItems = await this.loadMenuItemPricingMap(
+      branchId,
+      inputs.map((input) => input.menuItemId),
+    );
+
+    return inputs.map((input) => {
+      const item = menuItems.get(input.menuItemId);
+      if (!item) {
+        throw new NotFoundException(`Menu item not found: ${input.menuItemId}`);
+      }
+      return this.resolveLineFromItem(item, input);
+    });
+  }
+
+  private resolveLineFromItem(item: MenuItemForPricing, input: OrderLineInputDto): ResolvedLine {
     const availability = item.branchAvailability[0];
     if (availability?.is86 || availability?.isAvailable === false) {
       throw new BadRequestException(`${item.name} is not available`);
@@ -497,7 +552,10 @@ export class OrdersService {
     let priceAdjustment = new Prisma.Decimal(0);
 
     if (item.type === 'DRINK') {
-      const size = item.sizes.find((s) => s.id === input.sizeId) ?? item.sizes.find((s) => s.isDefault) ?? item.sizes[0];
+      const size =
+        item.sizes.find((s) => s.id === input.sizeId) ??
+        item.sizes.find((s) => s.isDefault) ??
+        item.sizes[0];
       if (!size) {
         throw new BadRequestException(`Size required for ${item.name}`);
       }
@@ -587,6 +645,7 @@ export class OrdersService {
     discountTotal: Prisma.Decimal;
     taxTotal: Prisma.Decimal;
     total: Prisma.Decimal;
+    cogsTotal?: Prisma.Decimal;
     createdAt: Date;
     updatedAt: Date;
     discounts?: Array<{
@@ -635,6 +694,7 @@ export class OrdersService {
       discountTotal: decimalToString(order.discountTotal),
       taxTotal: decimalToString(order.taxTotal),
       total: decimalToString(order.total),
+      cogsTotal: order.cogsTotal !== undefined ? decimalToString(order.cogsTotal) : undefined,
       createdAt: order.createdAt.toISOString(),
       updatedAt: order.updatedAt.toISOString(),
       discounts: order.discounts

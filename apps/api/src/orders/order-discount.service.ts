@@ -5,6 +5,10 @@ import {
 } from '@nestjs/common';
 import { DiscountScope, DiscountType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  computeDiscountAmount,
+  computeLineTotalsAfterDiscount,
+} from '../common/utils/order-money.util';
 import { decimalToString } from '../common/utils/decimal.util';
 import { ApplyOrderDiscountDto } from './dto/apply-discount.dto';
 
@@ -118,14 +122,14 @@ export class OrderDiscountService {
       if (discount.scope === DiscountScope.LINE && discount.orderLineId) {
         const line = lines.find((l) => l.id === discount.orderLineId);
         if (!line) continue;
-        const amount = this.computeDiscountAmount(
+        const amount = computeDiscountAmount(
           line.lineSubtotal,
           discount.type,
           discount.value,
         );
         lineDiscounts.set(line.id, amount);
       } else if (discount.scope === DiscountScope.ORDER) {
-        const orderDiscountAmount = this.computeDiscountAmount(
+        const orderDiscountAmount = computeDiscountAmount(
           subtotal,
           discount.type,
           discount.value,
@@ -146,27 +150,21 @@ export class OrderDiscountService {
 
     for (const line of lines) {
       const lineDiscount = lineDiscounts.get(line.id) ?? new Prisma.Decimal(0);
-      const cappedDiscount = Prisma.Decimal.min(lineDiscount, line.lineSubtotal);
-      const taxRate = line.lineSubtotal.gt(0)
-        ? line.lineTax.div(line.lineSubtotal)
-        : new Prisma.Decimal(0);
-      const taxable = line.lineSubtotal.sub(cappedDiscount);
-      const lineTax = taxable.mul(taxRate);
-      const lineTotal = taxable.add(lineTax);
+      const totals = computeLineTotalsAfterDiscount(line.lineSubtotal, line.lineTax, lineDiscount);
 
       await tx.orderLine.update({
         where: { id: line.id },
         data: {
-          lineDiscount: cappedDiscount,
-          lineTax,
-          lineTotal,
+          lineDiscount: totals.lineDiscount,
+          lineTax: totals.lineTax,
+          lineTotal: totals.lineTotal,
         },
       });
 
       orderSubtotal = orderSubtotal.add(line.lineSubtotal);
-      orderDiscountTotal = orderDiscountTotal.add(cappedDiscount);
-      orderTaxTotal = orderTaxTotal.add(lineTax);
-      orderTotal = orderTotal.add(lineTotal);
+      orderDiscountTotal = orderDiscountTotal.add(totals.lineDiscount);
+      orderTaxTotal = orderTaxTotal.add(totals.lineTax);
+      orderTotal = orderTotal.add(totals.lineTotal);
     }
 
     await tx.order.update({
@@ -192,17 +190,6 @@ export class OrderDiscountService {
     }
   }
 
-  private computeDiscountAmount(
-    base: Prisma.Decimal,
-    type: DiscountType,
-    value: Prisma.Decimal,
-  ): Prisma.Decimal {
-    if (type === DiscountType.PERCENTAGE) {
-      return base.mul(value).div(100);
-    }
-    return Prisma.Decimal.min(value, base);
-  }
-
   private async previewAmount(orderId: string, dto: ApplyOrderDiscountDto): Promise<Prisma.Decimal> {
     const lines = await this.prisma.orderLine.findMany({ where: { orderId } });
     if (!lines.length) throw new BadRequestException('Order has no lines');
@@ -210,7 +197,7 @@ export class OrderDiscountService {
     if (dto.scope === DiscountScope.LINE && dto.orderLineId) {
       const line = lines.find((l) => l.id === dto.orderLineId);
       if (!line) throw new BadRequestException('Order line not found');
-      return this.computeDiscountAmount(
+      return computeDiscountAmount(
         line.lineSubtotal,
         dto.type,
         new Prisma.Decimal(dto.value),
@@ -221,7 +208,7 @@ export class OrderDiscountService {
       (acc, line) => acc.add(line.lineSubtotal),
       new Prisma.Decimal(0),
     );
-    return this.computeDiscountAmount(subtotal, dto.type, new Prisma.Decimal(dto.value));
+    return computeDiscountAmount(subtotal, dto.type, new Prisma.Decimal(dto.value));
   }
 
   private async getDraftOrder(orderId: string, organizationId: string) {

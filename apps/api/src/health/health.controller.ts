@@ -27,12 +27,16 @@ export class HealthController {
     }
 
     let database: 'up' | 'down' = 'down';
+    let dbLatencyMs: number | undefined;
 
+    const started = Date.now();
     try {
       await this.prisma.$queryRaw`SELECT 1`;
       database = 'up';
+      dbLatencyMs = Date.now() - started;
     } catch {
       database = 'down';
+      dbLatencyMs = Date.now() - started;
     }
 
     return {
@@ -42,6 +46,7 @@ export class HealthController {
         database,
         redis: 'skipped',
       },
+      dbLatencyMs,
     };
   }
 }

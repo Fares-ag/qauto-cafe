@@ -1184,15 +1184,26 @@ export class ApiClient {
     return this.request(`/menu/admin/items/${menuItemId}/sizes/${sizeId}`, { method: 'DELETE' });
   }
 
-  async listModifierGroups() {
-    return this.request<Array<{
-      id: string;
-      name: string;
-      minSelections: number;
-      maxSelections: number;
-      isRequired: boolean;
-      modifierCount: number;
-    }>>('/menu/admin/modifier-groups');
+  async listModifierGroups(options?: { includeModifiers?: boolean }) {
+    const query = options?.includeModifiers ? '?includeModifiers=true' : '';
+    return this.request<
+      Array<{
+        id: string;
+        name: string;
+        minSelections: number;
+        maxSelections: number;
+        isRequired: boolean;
+        sortOrder?: number;
+        modifierCount?: number;
+        modifiers?: Array<{
+          id: string;
+          name: string;
+          code: string;
+          priceAdjustment: string;
+          isActive: boolean;
+        }>;
+      }>
+    >(`/menu/admin/modifier-groups${query}`);
   }
 
   async createModifierGroup(body: {
@@ -1267,7 +1278,8 @@ export class ApiClient {
 
   /** Aliases used by menu builder UI */
   getMenuAdminCategories = () => this.listMenuCategories();
-  getModifierGroups = () => this.listModifierGroups();
+  getModifierGroups = (options?: { includeModifiers?: boolean }) =>
+    this.listModifierGroups(options);
 
   private async request<T>(path: string, init: RequestInit = {}, retried = false): Promise<T> {
     const headers = new Headers(init.headers);

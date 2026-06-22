@@ -44,6 +44,7 @@ export interface HealthResponse {
     database: 'up' | 'down';
     redis: 'up' | 'down' | 'skipped';
   };
+  dbLatencyMs?: number;
 }
 
 export interface PaginatedMeta {

@@ -27,7 +27,8 @@ import { LoyaltyModule } from './loyalty/loyalty.module';
 import { GiftCardsModule } from './gift-cards/gift-cards.module';
 import { CommonModule } from './common/common.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { SlowRequestInterceptor } from './common/interceptors/slow-request.interceptor';
 
 @Module({
   imports: [
@@ -62,6 +63,9 @@ import { APP_GUARD } from '@nestjs/core';
     GiftCardsModule,
     WsModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_INTERCEPTOR, useClass: SlowRequestInterceptor },
+  ],
 })
 export class AppModule {}

@@ -379,22 +379,49 @@ export class MenuAdminService {
     return { id: sizeId, deleted: true };
   }
 
-  listModifierGroups(organizationId: string) {
-    return this.prisma.modifierGroup.findMany({
-      where: { organizationId, deletedAt: null },
-      orderBy: { sortOrder: 'asc' },
-      include: { _count: { select: { modifiers: true } } },
-    }).then((rows) =>
-      rows.map((g) => ({
-        id: g.id,
-        name: g.name,
-        minSelections: g.minSelections,
-        maxSelections: g.maxSelections,
-        isRequired: g.isRequired,
-        sortOrder: g.sortOrder,
-        modifierCount: g._count.modifiers,
-      })),
-    );
+  listModifierGroups(organizationId: string, includeModifiers = false) {
+    if (includeModifiers) {
+      return this.prisma.modifierGroup
+        .findMany({
+          where: { organizationId, deletedAt: null },
+          orderBy: { sortOrder: 'asc' },
+          include: {
+            modifiers: {
+              where: { deletedAt: null, isActive: true },
+              orderBy: { sortOrder: 'asc' },
+            },
+          },
+        })
+        .then((rows) =>
+          rows.map((group) => ({
+            id: group.id,
+            name: group.name,
+            minSelections: group.minSelections,
+            maxSelections: group.maxSelections,
+            isRequired: group.isRequired,
+            sortOrder: group.sortOrder,
+            modifiers: group.modifiers.map((modifier) => this.serializeModifier(modifier)),
+          })),
+        );
+    }
+
+    return this.prisma.modifierGroup
+      .findMany({
+        where: { organizationId, deletedAt: null },
+        orderBy: { sortOrder: 'asc' },
+        include: { _count: { select: { modifiers: true } } },
+      })
+      .then((rows) =>
+        rows.map((group) => ({
+          id: group.id,
+          name: group.name,
+          minSelections: group.minSelections,
+          maxSelections: group.maxSelections,
+          isRequired: group.isRequired,
+          sortOrder: group.sortOrder,
+          modifierCount: group._count.modifiers,
+        })),
+      );
   }
 
   async createModifierGroup(organizationId: string, userId: string, dto: CreateModifierGroupDto) {
