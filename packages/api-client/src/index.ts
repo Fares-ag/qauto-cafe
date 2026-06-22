@@ -1197,10 +1197,12 @@ export class ApiClient {
         modifierCount?: number;
         modifiers?: Array<{
           id: string;
+          modifierGroupId: string;
           name: string;
           code: string;
           priceAdjustment: string;
           isActive: boolean;
+          sortOrder: number;
         }>;
       }>
     >(`/menu/admin/modifier-groups${query}`);
