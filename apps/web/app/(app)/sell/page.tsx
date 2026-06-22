@@ -91,6 +91,7 @@ export default function SellPage() {
   const cartSyncQueueRef = useRef(Promise.resolve());
   const pendingCartOpsRef = useRef(0);
   const customerSyncedRef = useRef<string | null>(null);
+  const submittedOrderIdsRef = useRef(new Set<string>());
 
   const { data: bootstrap, isLoading: bootstrapLoading, error: bootstrapError } = usePosBootstrap(branchId);
 
@@ -169,11 +170,21 @@ export default function SellPage() {
   const refreshOrderFromServer = useCallback(async (orderId: string) => {
     const fresh = await withAuth((client) => client.getOrder(orderId));
     const current = useCartStore.getState().order;
-    if (current?.id === orderId) {
+    if (current?.id === orderId && !submittedOrderIdsRef.current.has(orderId)) {
       setOrder(fresh);
     }
     return fresh;
   }, [setOrder]);
+
+  const commitOrderFromServer = useCallback(
+    (updated: Order) => {
+      if (submittedOrderIdsRef.current.has(updated.id)) return;
+      const current = useCartStore.getState().order;
+      if (current && current.id !== updated.id) return;
+      setOrder(updated);
+    },
+    [setOrder],
+  );
 
   const enqueueCartMutation = useCallback(
     (fn: () => Promise<void>) => {
@@ -227,7 +238,7 @@ export default function SellPage() {
     enqueueCartMutation(async () => {
       const orderId = useCartStore.getState().order?.id ?? currentOrder!.id;
       const updated = await withAuth((client) => client.addOrderLine(orderId, line));
-      setOrder(updated);
+      commitOrderFromServer(updated);
     });
   }
 
@@ -255,7 +266,7 @@ export default function SellPage() {
             : await withAuth((client) =>
                 client.updateOrderLineQuantity(refreshed.id, resolvedLine.id, quantity),
               );
-        setOrder(updated);
+        commitOrderFromServer(updated);
         return;
       }
 
@@ -265,7 +276,7 @@ export default function SellPage() {
           : await withAuth((client) =>
               client.updateOrderLineQuantity(latest.id, latestLine.id, quantity),
             );
-      setOrder(updated);
+      commitOrderFromServer(updated);
     });
   }
 
@@ -287,7 +298,7 @@ export default function SellPage() {
       }
 
       const updated = await withAuth((client) => client.removeOrderLine(latest.id, latestLine.id));
-      setOrder(updated);
+      commitOrderFromServer(updated);
     });
   }
 
@@ -303,7 +314,7 @@ export default function SellPage() {
     enqueueCartMutation(async () => {
       const orderId = useCartStore.getState().order?.id ?? currentOrder.id;
       const updated = await withAuth((client) => client.clearOrderLines(orderId));
-      setOrder(updated);
+      commitOrderFromServer(updated);
     });
   }
 
@@ -368,8 +379,8 @@ export default function SellPage() {
     return null;
   }
 
-  async function syncCustomer(orderId: string) {
-    const { customerName, customerDepartment, customerId, billingParty, guestName } = registerCustomer;
+  async function syncCustomer(orderId: string, customer: RegisterCustomerValue = registerCustomer) {
+    const { customerName, customerDepartment, customerId, billingParty, guestName } = customer;
     const hasDetails =
       customerName.trim() ||
       customerDepartment.trim() ||
@@ -387,7 +398,7 @@ export default function SellPage() {
         billingParty,
       }),
     );
-    customerSyncedRef.current = hashRegisterCustomer(registerCustomer);
+    customerSyncedRef.current = hashRegisterCustomer(customer);
     const current = useCartStore.getState().order;
     if (current?.id === orderId) {
       setOrder({
@@ -539,12 +550,6 @@ export default function SellPage() {
       setPaying(false);
     }
   }
-  async function handlePay(method: 'CASH' | 'CARD') {
-    const latestOrder = useCartStore.getState().order;
-    if (!latestOrder?.lines.length) return;
-    await completePayment([{ method, amount: latestOrder.total }]);
-  }
-
   async function handlePayWithGiftCard() {
     const latestOrder = useCartStore.getState().order;
     if (!latestOrder?.lines.length || !giftCardCode) return;
@@ -557,66 +562,66 @@ export default function SellPage() {
     await completePayment(payments);
   }
 
-  async function handlePayLater() {
-    if (!order?.lines.length) return;
-    setPaying(true);
+  function handlePlaceOrder() {
+    const latestOrder = useCartStore.getState().order;
+    if (!latestOrder?.lines.length) return;
+
+    const validationError = validateRegisterCustomer();
+    if (validationError) {
+      setPayError(validationError);
+      return;
+    }
+
+    const orderId = latestOrder.id;
+    const orderNumber = latestOrder.orderNumber;
+    const customerSnapshot = registerCustomer;
+    const customerKey = hashRegisterCustomer(customerSnapshot);
+
+    submittedOrderIdsRef.current.add(orderId);
     setPayError(null);
     setStockErrors([]);
-    setPaySuccess(null);
+    setPaySuccess(`Order #${orderNumber} placed`);
+    toast('Order placed', 'success');
+    setOrder(null);
+    resetRegisterCustomer();
+    customerSyncedRef.current = null;
+    setLoyaltyPointsRedeem('');
+    setGiftCardCode('');
+    setDiscountValue('');
+    setOrderType('COUNTER');
+    invalidateOrderQueries();
 
-    try {
-      await waitForCartSync();
+    setTimeout(() => setPaySuccess(null), 2500);
 
-      const validationError = validateRegisterCustomer();
-      if (validationError) {
-        setPayError(validationError);
-        return;
+    void (async () => {
+      try {
+        await waitForCartSync();
+        if (customerKey !== customerSyncedRef.current) {
+          await syncCustomer(orderId, customerSnapshot);
+        }
+        await withAuth((client) => client.deferOrder(orderId));
+      } catch (err) {
+        submittedOrderIdsRef.current.delete(orderId);
+        try {
+          const restored = await withAuth((client) => client.getOrder(orderId));
+          setOrder(restored);
+        } catch {
+          // keep cart clear if order no longer exists
+        }
+        if (
+          err instanceof ApiError &&
+          err.body.status === 409 &&
+          isStockShortageErrors(err.body.errors)
+        ) {
+          setStockErrors(err.body.errors);
+          toast("Can't place order — item sold out", 'error');
+          invalidateMenuCatalog();
+        } else {
+          toast(err instanceof Error ? err.message : 'Could not place order', 'error');
+        }
+        invalidateOrderQueries();
       }
-
-      const customerKey = hashRegisterCustomer(registerCustomer);
-      if (customerKey !== customerSyncedRef.current) {
-        await syncCustomer(order.id);
-      }
-
-      const latestOrder = useCartStore.getState().order ?? order;
-      const result = await withAuth((client) => client.deferOrder(latestOrder.id));
-
-      setOrder({
-        ...latestOrder,
-        status: result.order.status,
-        cogsTotal: result.order.cogsTotal,
-        deferredAt: result.order.deferredAt,
-        customerName: result.order.customerName ?? (registerCustomer.customerName || null),
-        customerDepartment: result.order.customerDepartment ?? (registerCustomer.customerDepartment || null),
-        guestName: result.order.guestName ?? null,
-        billingParty: result.order.billingParty ?? registerCustomer.billingParty,
-      });
-
-      setPaySuccess(
-        `Order #${result.order.orderNumber} sent to kitchen · payment pending`,
-      );
-      toast('Sent to kitchen — collect payment later', 'success');
-      invalidateOrderQueries();
-
-      setTimeout(() => {
-        setOrder(null);
-        setPaySuccess(null);
-        resetRegisterCustomer();
-      }, 3000);
-    } catch (err) {
-      if (
-        err instanceof ApiError &&
-        err.body.status === 409 &&
-        isStockShortageErrors(err.body.errors)
-      ) {
-        setStockErrors(err.body.errors);
-        invalidateMenuCatalog();
-      } else {
-        setPayError(err instanceof Error ? err.message : 'Could not send to kitchen');
-      }
-    } finally {
-      setPaying(false);
-    }
+    })();
   }
 
   if ((bootstrapLoading && !catalog) || !bootstrap) {
@@ -753,10 +758,9 @@ export default function SellPage() {
           onApplyDiscount={handleApplyDiscount}
           onClearDiscount={handleClearDiscount}
           onClear={handleClear}
-          onPay={handlePay}
+          onPlaceOrder={handlePlaceOrder}
           onSplitPay={() => setShowSplitPay(true)}
           onPayWithGiftCard={handlePayWithGiftCard}
-          onPayLater={handlePayLater}
           onUpdateQuantity={handleUpdateQuantity}
           onRemoveLine={handleRemoveLine}
         />

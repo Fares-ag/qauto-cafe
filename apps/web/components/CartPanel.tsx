@@ -1,7 +1,7 @@
 'use client';
 
 import type { Order } from '@qauto/shared-types';
-import { Alert, ActionTile, Button, Card, CollapsibleSection, Input, StatusBadge } from '@qauto/ui';
+import { Alert, Button, Card, CollapsibleSection, Input, StatusBadge } from '@qauto/ui';
 import {
   RegisterCustomerPanel,
   type RegisterCustomerValue,
@@ -27,10 +27,9 @@ interface CartPanelProps {
   onApplyDiscount: () => void;
   onClearDiscount: () => void;
   onClear: () => void;
-  onPay: (method: 'CASH' | 'CARD') => void;
+  onPlaceOrder: () => void;
   onSplitPay: () => void;
   onPayWithGiftCard: () => void;
-  onPayLater: () => void;
   onUpdateQuantity: (lineIndex: number, quantity: number) => void;
   onRemoveLine: (lineIndex: number) => void;
 }
@@ -55,10 +54,9 @@ export function CartPanel({
   onApplyDiscount,
   onClearDiscount,
   onClear,
-  onPay,
+  onPlaceOrder,
   onSplitPay,
   onPayWithGiftCard,
-  onPayLater,
   onUpdateQuantity,
   onRemoveLine,
 }: CartPanelProps) {
@@ -212,34 +210,14 @@ export function CartPanel({
 
         {!isLocked ? (
           <div className="mt-4 space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <ActionTile
-                label="Cash"
-                icon="💵"
-                variant="primary"
-                disabled={!order?.lines.length || isCheckoutBusy}
-                loading={isPaying}
-                onClick={() => onPay('CASH')}
-              />
-              <ActionTile
-                label="Card"
-                icon="💳"
-                variant="accent"
-                disabled={!order?.lines.length || isCheckoutBusy}
-                loading={isPaying}
-                onClick={() => onPay('CARD')}
-              />
-            </div>
-
             <Button
-              variant="ghost"
+              variant="primary"
               size="lg"
-              className="w-full border border-dashed border-border"
-              disabled={!order?.lines.length || isCheckoutBusy}
-              loading={isPaying}
-              onClick={onPayLater}
+              className="w-full"
+              disabled={!order?.lines.length}
+              onClick={onPlaceOrder}
             >
-              Send to kitchen · pay later
+              Place order
             </Button>
 
             <CollapsibleSection title="More options" icon="➕">
