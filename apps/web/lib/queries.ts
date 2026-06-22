@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { MenuCatalog, Shift } from '@qauto/shared-types';
 import { getApiClient } from '@/lib/api';
@@ -54,21 +55,21 @@ export function usePosBootstrap(branchId: string | null) {
   const catalog = useMenuCatalog(branchId);
   const shift = useCurrentShift(branchId, terminal.data ?? null);
 
+  const data = useMemo(() => {
+    if (!terminal.data || catalog.data === undefined) return undefined;
+    return {
+      terminalId: terminal.data,
+      catalog: catalog.data as MenuCatalog,
+      shift: (shift.data ?? null) as Shift | null,
+    };
+  }, [terminal.data, catalog.data, shift.data]);
+
   const isLoading =
     (terminal.isLoading && !terminal.data) ||
     (catalog.isLoading && catalog.data === undefined) ||
     (shift.isLoading && shift.data === undefined);
 
   const error = terminal.error ?? catalog.error ?? shift.error;
-
-  const data =
-    terminal.data && catalog.data !== undefined
-      ? {
-          terminalId: terminal.data,
-          catalog: catalog.data as MenuCatalog,
-          shift: (shift.data ?? null) as Shift | null,
-        }
-      : undefined;
 
   return { data, isLoading, error };
 }
@@ -124,12 +125,15 @@ export function useNavBadges(
   const { data: queue = [] } = useOrderQueue(branchId, enabled ? interval : false);
   const { data: unpaidCount = 0 } = useUnpaidCount(branchId, enabled ? interval : false);
 
-  return {
-    data: {
-      unpaidCount,
-      kitchenCount: queue.filter((order) => queueStatuses.has(order.status)).length,
-    },
-  };
+  return useMemo(
+    () => ({
+      data: {
+        unpaidCount,
+        kitchenCount: queue.filter((order) => queueStatuses.has(order.status)).length,
+      },
+    }),
+    [unpaidCount, queue],
+  );
 }
 
 export function useDashboardData(branchId: string | null, businessDate: string) {

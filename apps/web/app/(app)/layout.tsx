@@ -24,6 +24,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     refetchInterval: minimalChrome ? false : 30_000,
   });
 
+  const badgeCounts = useMemo(
+    () => ({
+      unpaidCount: badges?.unpaidCount ?? 0,
+      kitchenCount: badges?.kitchenCount ?? 0,
+    }),
+    [badges?.unpaidCount, badges?.kitchenCount],
+  );
+
   useEffect(() => {
     if (!hasHydrated) return;
     if (!user) router.replace('/login');
@@ -49,10 +57,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const navGroups = useMemo(
     () =>
       applyNavBadges(getNavGroups(sessionType), {
-        orders: badges?.unpaidCount ?? 0,
-        kitchen: badges?.kitchenCount ?? 0,
+        orders: badgeCounts.unpaidCount,
+        kitchen: badgeCounts.kitchenCount,
       }),
-    [sessionType, badges?.unpaidCount, badges?.kitchenCount],
+    [sessionType, badgeCounts.unpaidCount, badgeCounts.kitchenCount],
   );
 
   if (!hasHydrated || !user) {

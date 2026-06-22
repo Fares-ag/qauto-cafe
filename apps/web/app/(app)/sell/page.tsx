@@ -113,11 +113,28 @@ export default function SellPage() {
 
   useEffect(() => {
     if (!bootstrap) return;
-    setPosTerminalId(bootstrap.terminalId);
-    setCatalog(bootstrap.catalog);
-    setShift(bootstrap.shift);
+
+    if (posTerminalId !== bootstrap.terminalId) {
+      setPosTerminalId(bootstrap.terminalId);
+    }
+    if (catalog !== bootstrap.catalog) {
+      setCatalog(bootstrap.catalog);
+    }
+    const nextShift = bootstrap.shift;
+    if (currentShift?.id !== nextShift?.id || currentShift?.status !== nextShift?.status) {
+      setShift(nextShift);
+    }
     setActiveCategoryId((current) => current ?? bootstrap.catalog.categories[0]?.id ?? null);
-  }, [bootstrap, setPosTerminalId, setCatalog, setShift]);
+  }, [
+    bootstrap,
+    posTerminalId,
+    catalog,
+    currentShift?.id,
+    currentShift?.status,
+    setPosTerminalId,
+    setCatalog,
+    setShift,
+  ]);
 
   useEffect(() => {
     if (bootstrapError) {
