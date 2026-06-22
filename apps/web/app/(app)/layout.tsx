@@ -88,9 +88,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           role: getRoleLabel(user.role, sessionType),
         }}
         onLogout={() => {
-          useCartStore.getState().reset();
-          clearSession();
-          router.push(sessionType === 'staff' ? '/login/pin' : '/login');
+          void getApiClient()
+            .logoutSession()
+            .catch(() => undefined)
+            .finally(() => {
+              useCartStore.getState().reset();
+              clearSession();
+              router.push(sessionType === 'staff' ? '/login/pin' : '/login');
+            });
         }}
       >
         {children}

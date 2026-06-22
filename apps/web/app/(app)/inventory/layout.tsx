@@ -6,7 +6,8 @@ import { usePathname } from 'next/navigation';
 const TABS = [
   { href: '/inventory', label: 'Overview', exact: true },
   { href: '/inventory/receive', label: 'Receive' },
-  { href: '/inventory/waste', label: 'Waste & Adjust' },
+  { href: '/inventory/waste', label: 'Waste' },
+  { href: '/inventory/adjust', label: 'Adjust & Transfer' },
   { href: '/inventory/movements', label: 'History' },
 ];
 

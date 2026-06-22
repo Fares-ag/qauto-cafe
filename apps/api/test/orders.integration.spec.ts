@@ -33,7 +33,7 @@ describe('Orders (integration)', () => {
       });
   }
 
-  async function createPaidOrder() {
+  async function createDraftOrder() {
     const { menuItemId, sizeId } = await firstCatalogLine();
 
     const createRes = await request(app.getHttpServer())
@@ -45,8 +45,14 @@ describe('Orders (integration)', () => {
       })
       .expect(201);
 
-    const orderId = createRes.body.id as string;
-    const total = createRes.body.total as string;
+    return {
+      orderId: createRes.body.id as string,
+      total: createRes.body.total as string,
+    };
+  }
+
+  async function createPaidOrder() {
+    const { orderId, total } = await createDraftOrder();
 
     const payRes = await request(app.getHttpServer())
       .post(`/api/v1/orders/${orderId}/pay`)
@@ -139,5 +145,41 @@ describe('Orders (integration)', () => {
       .expect(200);
 
     expect(orderRes.body.status).toBe('VOIDED');
+  });
+
+  it('accepts split-tender payments with a single idempotency key', async () => {
+    const { orderId, total } = await createDraftOrder();
+    const totalNum = parseFloat(total);
+    const cashAmount = (totalNum / 2).toFixed(4);
+    const cardAmount = (totalNum - totalNum / 2).toFixed(4);
+    const idempotencyKey = `test-split-${orderId}`;
+
+    const payRes = await request(app.getHttpServer())
+      .post(`/api/v1/orders/${orderId}/pay`)
+      .set(authHeader(token))
+      .send({
+        payments: [
+          { method: 'CASH', amount: cashAmount },
+          { method: 'CARD', amount: cardAmount },
+        ],
+        idempotencyKey,
+      })
+      .expect(201);
+
+    expect(payRes.body.order.status).toBe('PAID');
+
+    const replay = await request(app.getHttpServer())
+      .post(`/api/v1/orders/${orderId}/pay`)
+      .set(authHeader(token))
+      .send({
+        payments: [
+          { method: 'CASH', amount: cashAmount },
+          { method: 'CARD', amount: cardAmount },
+        ],
+        idempotencyKey,
+      })
+      .expect(201);
+
+    expect(replay.body.order.status).toBe('PAID');
   });
 });

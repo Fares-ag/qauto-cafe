@@ -93,6 +93,10 @@ export class ApiClient {
     return this.request<LoginResponse>('/auth/refresh', { method: 'POST' });
   }
 
+  async logoutSession(): Promise<void> {
+    await this.request('/auth/logout', { method: 'POST' });
+  }
+
   async getHealth(): Promise<unknown> {
     return this.request('/health');
   }

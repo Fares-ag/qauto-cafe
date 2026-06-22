@@ -22,6 +22,7 @@ import { GiftCardsService } from '../gift-cards/gift-cards.service';
 import { OrderDiscountService } from './order-discount.service';
 import { PRISMA_TX_OPTIONS } from '../prisma/transaction-options';
 import { DiscountScope, DiscountType } from '@prisma/client';
+import { paymentIdempotencyKey } from './payment-idempotency.util';
 
 @Injectable()
 export class OrderPaymentService {
@@ -150,7 +151,7 @@ export class OrderPaymentService {
     try {
       if (isPayLaterCollection) {
         await this.prisma.$transaction(async (tx) => {
-          for (const payment of dto.payments) {
+          for (const [index, payment] of dto.payments.entries()) {
             const giftCardRef = resolveGiftCardRef(payment);
             if (giftCardRef) {
               await this.giftCards.redeem(
@@ -168,7 +169,7 @@ export class OrderPaymentService {
                 status: PaymentStatus.COMPLETED,
                 amount: payment.amount,
                 reference: giftCardRef ?? payment.reference,
-                idempotencyKey: dto.idempotencyKey,
+                idempotencyKey: paymentIdempotencyKey(dto.idempotencyKey, index),
                 processedById: userId,
                 processedAt: new Date(),
               },
@@ -216,7 +217,7 @@ export class OrderPaymentService {
             await this.fulfillment.applyFulfillmentInTx(tx, order, userId, prep);
           consumedIngredientIds = consumed;
 
-          for (const payment of dto.payments) {
+          for (const [index, payment] of dto.payments.entries()) {
             const giftCardRef = resolveGiftCardRef(payment);
             if (giftCardRef) {
               await this.giftCards.redeem(
@@ -234,7 +235,7 @@ export class OrderPaymentService {
                 status: PaymentStatus.COMPLETED,
                 amount: payment.amount,
                 reference: giftCardRef ?? payment.reference,
-                idempotencyKey: dto.idempotencyKey,
+                idempotencyKey: paymentIdempotencyKey(dto.idempotencyKey, index),
                 processedById: userId,
                 processedAt: new Date(),
               },

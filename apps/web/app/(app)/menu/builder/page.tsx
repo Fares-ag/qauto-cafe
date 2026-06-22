@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Badge,
   Button,
@@ -14,6 +15,7 @@ import {
 } from '@qauto/ui';
 import { getApiClient } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth-store';
+import { queryKeys } from '@/lib/query-keys';
 import { ConfirmDialog, Modal } from '@/components/admin/modal';
 import { MenuItemDetailModal } from '@/components/admin/menu-item-detail-modal';
 import { MenuItemImageField } from '@/components/admin/menu-item-image-field';
@@ -33,6 +35,7 @@ const TABS: { id: Tab; label: string }[] = [
 
 export default function MenuBuilderPage() {
   const branchId = useAuthStore((s) => s.branchId);
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const [tab, setTab] = useState<Tab>('categories');
   const [loading, setLoading] = useState(true);
@@ -66,6 +69,11 @@ export default function MenuBuilderPage() {
   const [deleteGroup, setDeleteGroup] = useState<ModifierGroup | null>(null);
   const [editModifier, setEditModifier] = useState<{ groupId: string; id: string; name: string; priceAdjustment: string; isActive: boolean } | null>(null);
 
+  const invalidatePosCatalog = useCallback(() => {
+    if (!branchId) return;
+    void queryClient.invalidateQueries({ queryKey: queryKeys.menuCatalog(branchId) });
+  }, [branchId, queryClient]);
+
   const load = useCallback(async () => {
     if (!branchId) return;
     setLoading(true);
@@ -90,12 +98,13 @@ export default function MenuBuilderPage() {
       if (!modifierForm.groupId && groupsData[0]) {
         setModifierForm((f) => ({ ...f, groupId: groupsData[0].id }));
       }
+      invalidatePosCatalog();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to load menu builder', 'error');
     } finally {
       setLoading(false);
     }
-  }, [branchId, toast]);
+  }, [branchId, toast, invalidatePosCatalog]);
 
   useEffect(() => {
     load();

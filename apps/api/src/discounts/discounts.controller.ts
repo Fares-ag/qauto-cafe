@@ -4,12 +4,13 @@ import { ApplyOrderDiscountDto } from '../orders/dto/apply-discount.dto';
 import { OrdersService } from '../orders/orders.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
+import { OrderBranchAccessGuard } from '../common/guards/order-branch-access.guard';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 
 @Controller('orders/:orderId/discounts')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, OrderBranchAccessGuard)
 export class DiscountsController {
   constructor(
     private readonly orderDiscountService: OrderDiscountService,

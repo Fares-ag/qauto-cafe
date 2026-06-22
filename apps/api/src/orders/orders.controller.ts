@@ -13,12 +13,13 @@ import { UpdateOrderCustomerDto } from './dto/update-order-customer.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { BranchAccessGuard } from '../common/guards/branch-access.guard';
+import { OrderBranchAccessGuard } from '../common/guards/order-branch-access.guard';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.type';
 
 @Controller('orders')
-@UseGuards(JwtAuthGuard, PermissionsGuard, BranchAccessGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BranchAccessGuard, OrderBranchAccessGuard)
 export class OrdersController {
   constructor(
     private readonly ordersService: OrdersService,

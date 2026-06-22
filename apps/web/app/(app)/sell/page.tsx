@@ -624,6 +624,19 @@ export default function SellPage() {
     })();
   }
 
+  if (bootstrapError && !bootstrap && !bootstrapLoading) {
+    return (
+      <div className="mx-auto max-w-md space-y-4">
+        <Alert variant="error" title="Register unavailable">
+          {bootstrapError instanceof Error ? bootstrapError.message : 'Failed to initialize POS'}
+        </Alert>
+        <Button variant="primary" onClick={() => window.location.reload()}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
   if ((bootstrapLoading && !catalog) || !bootstrap) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
