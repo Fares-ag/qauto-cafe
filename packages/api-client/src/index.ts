@@ -1090,6 +1090,47 @@ export class ApiClient {
   }
 
   async uploadMenuItemImage(file: File) {
+    const extension = file.name.includes('.')
+      ? file.name.slice(file.name.lastIndexOf('.'))
+      : file.type === 'image/png'
+        ? '.png'
+        : file.type === 'image/webp'
+          ? '.webp'
+          : file.type === 'image/gif'
+            ? '.gif'
+            : '.jpg';
+
+    const prepared = await this.request<
+      | { mode: 'multipart' }
+      | {
+          mode: 'supabase';
+          signedUrl: string;
+          token: string;
+          path: string;
+          publicUrl: string;
+        }
+    >('/menu/admin/prepare-image-upload', {
+      method: 'POST',
+      body: JSON.stringify({ contentType: file.type, extension }),
+    });
+
+    if (prepared.mode === 'supabase') {
+      const uploadResponse = await fetch(prepared.signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+      if (!uploadResponse.ok) {
+        throw new ApiError({
+          type: 'upload_failed',
+          title: 'Upload failed',
+          status: uploadResponse.status,
+          detail: 'Could not upload image to storage',
+        });
+      }
+      return { url: prepared.publicUrl };
+    }
+
     const form = new FormData();
     form.append('file', file);
 

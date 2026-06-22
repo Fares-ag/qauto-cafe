@@ -26,6 +26,7 @@ import { DiscountsModule } from './discounts/discounts.module';
 import { LoyaltyModule } from './loyalty/loyalty.module';
 import { GiftCardsModule } from './gift-cards/gift-cards.module';
 import { CommonModule } from './common/common.module';
+import { SupabaseModule } from './supabase/supabase.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { SlowRequestInterceptor } from './common/interceptors/slow-request.interceptor';
@@ -39,6 +40,7 @@ import { SlowRequestInterceptor } from './common/interceptors/slow-request.inter
     }),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 30 }]),
     CommonModule,
+    SupabaseModule,
     PrismaModule,
     EventsModule,
     AuditModule,

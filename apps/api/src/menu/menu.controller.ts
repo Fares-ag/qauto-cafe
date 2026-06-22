@@ -13,8 +13,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { writeFile } from 'fs/promises';
-import { join, extname } from 'path';
+import { extname } from 'path';
 import { randomUUID } from 'crypto';
 import { IsBoolean, IsOptional, IsString } from 'class-validator';
 import { MenuService } from './menu.service';
@@ -119,6 +118,24 @@ export class MenuController {
     return this.menuAdmin.createItem(user.organizationId, user.id, dto);
   }
 
+  @Post('admin/prepare-image-upload')
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @Permissions('menu.manage')
+  async prepareImageUpload(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: { contentType: string; extension: string },
+  ) {
+    const prepared = await this.menuImages.prepareSignedUpload(
+      user.organizationId,
+      dto.contentType,
+      dto.extension,
+    );
+    if (!prepared) {
+      return { mode: 'multipart' as const };
+    }
+    return { mode: 'supabase' as const, ...prepared };
+  }
+
   @Post('admin/upload-image')
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @Permissions('menu.manage')
@@ -148,10 +165,14 @@ export class MenuController {
               : '.jpg';
 
     const filename = `${randomUUID()}${safeExt}`;
-    const dir = this.menuImages.orgDir(user.organizationId);
-    await writeFile(join(dir, filename), file.buffer);
+    const url = await this.menuImages.saveUpload(
+      user.organizationId,
+      filename,
+      file.buffer,
+      file.mimetype,
+    );
 
-    return { url: this.menuImages.publicUrl(user.organizationId, filename) };
+    return { url };
   }
 
   @Patch('admin/items/:menuItemId')

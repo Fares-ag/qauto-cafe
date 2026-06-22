@@ -24,6 +24,12 @@ export function validateProductionConfig() {
   if (!process.env.TERMINAL_ENROLLMENT_SECRET || process.env.TERMINAL_ENROLLMENT_SECRET.length < 16) {
     errors.push('TERMINAL_ENROLLMENT_SECRET must be at least 16 characters in production');
   }
+  if (!process.env.SUPABASE_URL) {
+    errors.push('SUPABASE_URL is required in production');
+  }
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    errors.push('SUPABASE_SERVICE_ROLE_KEY is required in production');
+  }
 
   if (errors.length) {
     throw new Error(`Production configuration invalid:\n- ${errors.join('\n- ')}`);

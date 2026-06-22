@@ -3,6 +3,7 @@
 import type { MenuCatalogItem } from '@qauto/shared-types';
 import { Badge } from '@qauto/ui';
 import { getCategoryIcon } from '@/lib/navigation';
+import { resolveMenuImageUrl } from '@/lib/resolve-menu-image-url';
 
 interface MenuGridProps {
   items: MenuCatalogItem[];
@@ -12,10 +13,11 @@ interface MenuGridProps {
 }
 
 function ItemImage({ item }: { item: MenuCatalogItem }) {
-  if (item.imageUrl) {
+  const src = resolveMenuImageUrl(item.imageUrl);
+  if (src) {
     return (
       <img
-        src={item.imageUrl}
+        src={src}
         alt={item.name}
         className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
         loading="lazy"

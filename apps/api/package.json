@@ -2,6 +2,10 @@
   "name": "@qauto/api",
   "version": "0.1.0",
   "private": true,
+  "main": "dist/main.js",
+  "exports": {
+    "./bootstrap": "./dist/bootstrap.js"
+  },
   "scripts": {
     "prebuild": "npm run db:generate --prefix ../.. && npm run build --workspace=@qauto/shared-types --prefix ../..",
     "build": "tsc -p tsconfig.build.json",
@@ -26,6 +30,7 @@
     "@nestjs/websockets": "^11.1.26",
     "@prisma/client": "^6.9.0",
     "@qauto/shared-types": "*",
+    "@supabase/supabase-js": "^2.49.8",
     "bcrypt": "^6.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",

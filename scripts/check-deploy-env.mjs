@@ -1,11 +1,22 @@
 #!/usr/bin/env node
 /**
- * Pre-deploy sanity check for Vercel + Railway split.
+ * Pre-deploy sanity check for Supabase + Vercel stack.
  * Usage: node scripts/check-deploy-env.mjs vercel|api
  */
 const mode = process.argv[2];
 
-const vercelRequired = ['NEXT_PUBLIC_API_URL', 'API_PROXY_TARGET', 'NEXT_PUBLIC_WS_URL'];
+const vercelRequired = [
+  'NEXT_PUBLIC_API_URL',
+  'DATABASE_URL',
+  'DIRECT_URL',
+  'JWT_ACCESS_SECRET',
+  'JWT_REFRESH_SECRET',
+  'TERMINAL_ENROLLMENT_SECRET',
+  'CORS_ORIGIN',
+  'SUPABASE_URL',
+  'SUPABASE_SERVICE_ROLE_KEY',
+];
+
 const apiRequired = [
   'DATABASE_URL',
   'DIRECT_URL',
@@ -14,6 +25,8 @@ const apiRequired = [
   'TERMINAL_ENROLLMENT_SECRET',
   'CORS_ORIGIN',
   'NODE_ENV',
+  'SUPABASE_URL',
+  'SUPABASE_SERVICE_ROLE_KEY',
 ];
 
 function check(keys) {
@@ -22,8 +35,8 @@ function check(keys) {
     console.error(`Missing: ${missing.join(', ')}`);
     process.exit(1);
   }
-  if (process.env.API_PROXY_TARGET?.includes('localhost') && mode === 'vercel') {
-    console.error('API_PROXY_TARGET must be your public Railway URL in production');
+  if (process.env.API_PROXY_TARGET?.includes('localhost') && mode === 'vercel' && process.env.VERCEL) {
+    console.error('Remove API_PROXY_TARGET on Vercel — API is colocated');
     process.exit(1);
   }
   if (process.env.CORS_ORIGIN?.includes('localhost') && mode === 'api') {

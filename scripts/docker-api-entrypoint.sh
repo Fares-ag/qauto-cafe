@@ -11,7 +11,7 @@ done
 
 if [ -n "$missing" ]; then
   echo "ERROR: Required environment variables are not set:$missing"
-  echo "Add them in Railway -> @qauto/api -> Variables (see deploy/railway.api.env.example)."
+  echo "Add them in Vercel project settings (see deploy/vercel.env.example)."
   exit 1
 fi
 

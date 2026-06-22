@@ -8,10 +8,23 @@ const nextConfig: NextConfig = {
   ...(isVercel ? {} : { output: 'standalone' as const }),
   transpilePackages: ['@qauto/shared-types', '@qauto/api-client', '@qauto/ui'],
   outputFileTracingRoot: path.join(__dirname, '../..'),
+  // NestJS API is imported from apps/api/src for colocated Vercel deployment.
+  serverExternalPackages: [
+    '@nestjs/core',
+    '@nestjs/common',
+    '@nestjs/platform-express',
+    '@prisma/client',
+    'bcrypt',
+    'class-transformer',
+    'class-validator',
+  ],
   experimental: {
     optimizePackageImports: ['@qauto/ui', 'lucide-react', 'recharts'],
   },
   async rewrites() {
+    if (isVercel) {
+      return [];
+    }
     return [
       {
         source: '/api/v1/:path*',

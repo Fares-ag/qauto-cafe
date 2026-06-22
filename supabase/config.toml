@@ -1,0 +1,8 @@
+# Supabase local CLI config (optional — use for `supabase db push` / storage migrations)
+project_id = "qauto-cafe"
+
+[api]
+enabled = true
+
+[storage]
+enabled = true
