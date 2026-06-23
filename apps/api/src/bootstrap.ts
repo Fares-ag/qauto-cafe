@@ -15,8 +15,12 @@ export async function createNestApplication(): Promise<INestApplication> {
   validateProductionConfig();
 
   const expressApp = express();
-  expressApp.use(express.json({ limit: '2mb' }));
-  expressApp.use(express.urlencoded({ extended: true, limit: '2mb' }));
+  // On Vercel, the Fetch→Express bridge (nest-server) pre-parses JSON into req.body.
+  // Running express.json() there waits forever for a stream that never ends.
+  if (!process.env.VERCEL) {
+    expressApp.use(express.json({ limit: '2mb' }));
+    expressApp.use(express.urlencoded({ extended: true, limit: '2mb' }));
+  }
   const adapter = new ExpressAdapter(expressApp);
   const app = await NestFactory.create(AppModule, adapter, { bodyParser: false });
 

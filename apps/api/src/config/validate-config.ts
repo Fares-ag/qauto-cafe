@@ -1,5 +1,6 @@
 const DEV_ACCESS_SECRET = 'dev-access-secret-change-in-production';
 const DEV_REFRESH_SECRET = 'dev-refresh-secret-change-in-production';
+const DEV_TERMINAL_SECRET = 'dev-terminal-enrollment-secret';
 
 export function validateProductionConfig() {
   const nodeEnv = process.env.NODE_ENV ?? 'development';
@@ -21,8 +22,12 @@ export function validateProductionConfig() {
   if (!process.env.CORS_ORIGIN || process.env.CORS_ORIGIN.includes('localhost')) {
     errors.push('CORS_ORIGIN must be set to production web origin(s)');
   }
-  if (!process.env.TERMINAL_ENROLLMENT_SECRET || process.env.TERMINAL_ENROLLMENT_SECRET.length < 16) {
-    errors.push('TERMINAL_ENROLLMENT_SECRET must be at least 16 characters in production');
+  if (
+    !process.env.TERMINAL_ENROLLMENT_SECRET ||
+    process.env.TERMINAL_ENROLLMENT_SECRET.length < 16 ||
+    process.env.TERMINAL_ENROLLMENT_SECRET === DEV_TERMINAL_SECRET
+  ) {
+    errors.push('TERMINAL_ENROLLMENT_SECRET must be a strong production value (16+ chars)');
   }
   if (!process.env.SUPABASE_URL) {
     errors.push('SUPABASE_URL is required in production');
